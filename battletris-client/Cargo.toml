@@ -1,0 +1,14 @@
+[package]
+name = "battletris-client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+battletris-engine = { path = "../battletris-engine" }
+sdl2 = { version = "0.36", features = ["bundled"] }
+rand = { workspace = true }
+tokio = { workspace = true }
+
+[features]
+# Enable to link against system SDL2 instead of compiling from source
+system-sdl2 = []
