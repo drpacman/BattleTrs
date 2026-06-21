@@ -117,22 +117,6 @@ pub fn frame_len(buf: &[u8]) -> usize {
     4 + payload_len
 }
 
-/// Player ELO / stats record, persisted in the server's PlayerDb.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct PlayerRecord {
-    pub name: String,
-    pub elo: i32,
-    pub wins: u32,
-    pub losses: u32,
-    pub draws: u32,
-}
-
-impl PlayerRecord {
-    pub fn new(name: &str) -> Self {
-        PlayerRecord { name: name.to_string(), elo: 1200, ..Default::default() }
-    }
-}
-
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

@@ -106,7 +106,7 @@ pub struct WeaponDef {
 }
 
 pub static WEAPONS: [WeaponDef; WEAPON_COUNT] = [
-    WeaponDef { kind: WeaponKind::FW,       name: "The Feared Weird",        description: "Forces opponent to receive only bizarre, hard-to-place pieces.",               price: 400,  duration: 3  },
+    WeaponDef { kind: WeaponKind::FW,       name: "The Feared Weird",        description: "Forces opponent to receive only bizarre, hard-to-place pieces.",              price: 400,  duration: 3  },
     WeaponDef { kind: WeaponKind::FBF,      name: "Four-by-Four",            description: "Every Box piece becomes a massive hollow 4x4 square.",                        price: 425,  duration: 10 },
     WeaponDef { kind: WeaponKind::Hatter,   name: "The Mad Hatter",          description: "Opponent's current piece rotates automatically every tick.",                  price: 375,  duration: 5  },
     WeaponDef { kind: WeaponKind::Upbyside, name: "Upbyside-down",           description: "Flips opponent's board upside-down - pieces fall from the top.",              price: 125,  duration: 10 },
@@ -403,11 +403,17 @@ pub fn apply_weapon_instant(
             tgt_board.remove_random_cell(rng);
         }
         WeaponKind::PieceIt => {
-            // Drop a plug-shaped piece at a random column on target board
             let col = rng.gen_range(1..7i32);
-            let row = 0i32;
             let piece_cells = PieceKind::Plug.cells(0);
-            // Place as Regular cells
+            // Simulate gravity: find the lowest row the piece can occupy
+            let mut row = 0i32;
+            loop {
+                let blocked = piece_cells.iter().any(|&(dc, dr)| {
+                    tgt_board.occupied(col + dc, row + dr + 1)
+                });
+                if blocked { break; }
+                row += 1;
+            }
             tgt_board.add_piece_at(piece_cells, col, row, Cell::Regular(rng.gen_range(1u8..=8)));
         }
         WeaponKind::Bug => {
