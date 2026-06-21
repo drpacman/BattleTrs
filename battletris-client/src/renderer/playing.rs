@@ -17,8 +17,8 @@ pub fn draw_playing(r: &mut Renderer, view: &PlayingView) {
     draw_board_with_effects(r, view, true);
 
     if let Some((kind, ref cells)) = view.active_piece {
-        draw_ghost_piece(&mut r.canvas, kind, &view.ghost_cells, PLAYER_BOARD_X, PLAYER_BOARD_Y);
-        draw_active_piece(&mut r.canvas, kind, cells, PLAYER_BOARD_X, PLAYER_BOARD_Y);
+        draw_ghost_piece(&mut r.canvas, kind, &view.ghost_cells, PLAYER_BOARD_X, PLAYER_BOARD_Y, view.upbyside_active);
+        draw_active_piece(&mut r.canvas, kind, cells, PLAYER_BOARD_X, PLAYER_BOARD_Y, view.upbyside_active);
     }
 
     // Gimp flash overlay on player board (if active)

@@ -67,6 +67,7 @@ pub enum PlayerInput {
     StartGame,
     Pause,
     QuitToTitle,
+    OpenBazaar,
 }
 
 /// Events emitted by `tick()` that the game loop acts on.
@@ -199,6 +200,9 @@ impl GameState {
     pub fn start_game(&mut self, events: &mut Vec<GameEvent>) {
         self.board = Board::new();
         self.score = Score::default();
+        if self.mode == GameMode::SinglePlayer {
+            self.score.funds = 10_000;
+        }
         self.weapon_state = WeaponState::new();
         self.arsenal = Arsenal::new();
         self.bazaar = None;
@@ -301,6 +305,12 @@ impl GameState {
                         self.opponent_gimp_flash_ms = 800;
                     }
                     events.push(GameEvent::WeaponFired { kind, reflect: false });
+                }
+                return;
+            }
+            PlayerInput::OpenBazaar => {
+                if self.mode != GameMode::VsNetwork {
+                    self.open_bazaar_now();
                 }
                 return;
             }

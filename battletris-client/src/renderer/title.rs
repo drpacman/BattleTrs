@@ -28,24 +28,29 @@ pub fn draw_title(r: &mut Renderer) {
 
     // Menu entries scale=2
     let s1 = "ENTER  -  PLAY VS COMPUTER";
-    draw_text(&mut r.canvas, s1, cx - text_w(s1, 2) / 2, 390, Color::RGB(255, 255, 255), 2);
+    draw_text(&mut r.canvas, s1, cx - text_w(s1, 2) / 2, 380, Color::RGB(255, 255, 255), 2);
 
-    let s2 = "N  -  NETWORK GAME";
-    draw_text(&mut r.canvas, s2, cx - text_w(s2, 2) / 2, 425, Color::RGB(255, 255, 255), 2);
+    let s2 = "S  -  SOLO PRACTICE";
+    draw_text(&mut r.canvas, s2, cx - text_w(s2, 2) / 2, 415, Color::RGB(200, 255, 200), 2);
+
+    let s3 = "N  -  NETWORK GAME";
+    draw_text(&mut r.canvas, s3, cx - text_w(s3, 2) / 2, 450, Color::RGB(255, 255, 255), 2);
 
     // Controls block
     r.canvas.set_draw_color(Color::RGB(40, 0, 60));
-    let _ = r.canvas.fill_rect(Rect::new(0, 575, WINDOW_W, 170));
+    let _ = r.canvas.fill_rect(Rect::new(0, 555, WINDOW_W, 190));
 
     let c1 = "ARROW KEYS: MOVE / ROTATE CW";
-    draw_text(&mut r.canvas, c1, cx - text_w(c1, 2) / 2, 600, Color::RGB(160, 160, 160), 2);
+    draw_text(&mut r.canvas, c1, cx - text_w(c1, 2) / 2, 575, Color::RGB(160, 160, 160), 2);
 
-    // Long control hint at scale=1 (6px per char)
     let c2 = "Z: ROTATE CCW   SPACE: HARD DROP   DOWN: SOFT DROP";
-    draw_text(&mut r.canvas, c2, cx - text_w(c2, 1) / 2, 630, Color::RGB(160, 160, 160), 1);
+    draw_text(&mut r.canvas, c2, cx - text_w(c2, 1) / 2, 608, Color::RGB(160, 160, 160), 1);
 
-    let c3 = "P: PAUSE   ESC: QUIT TO TITLE";
-    draw_text(&mut r.canvas, c3, cx - text_w(c3, 2) / 2, 650, Color::RGB(160, 160, 160), 2);
+    let c3 = "P: PAUSE   ESC: QUIT   B: OPEN SHOP (SOLO)";
+    draw_text(&mut r.canvas, c3, cx - text_w(c3, 1) / 2, 622, Color::RGB(160, 160, 160), 1);
+
+    let c4 = "1-9/0: LAUNCH WEAPON";
+    draw_text(&mut r.canvas, c4, cx - text_w(c4, 1) / 2, 636, Color::RGB(140, 200, 140), 1);
 
     // Credits scale=1
     let cred = "ORIGINAL BATTLETRIS (1994)  BROWN UNIV CS32";

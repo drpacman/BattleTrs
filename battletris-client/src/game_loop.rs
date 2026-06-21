@@ -63,8 +63,8 @@ pub fn run_game_loop(
     let mut network_result: Option<(bool, String, i32)> = None; // (i_won, winner_name, my_delta)
     let mut did_send_game_over = false; // prevent duplicate sends
 
-    // For network mode skip the title screen — the game begins immediately.
-    if is_network {
+    // Skip the in-engine title screen for modes that don't need it.
+    if is_network || peer.is_none() {
         state.tick(Some(PlayerInput::StartGame), 0);
     }
 
@@ -179,6 +179,19 @@ pub fn run_game_loop(
                     lines: state.score.lines,
                     funds: state.score.funds,
                 });
+            }
+        }
+
+        // ── Single player: apply fired weapons to self (for testing) ─────
+        if peer.is_none() {
+            use battletris_engine::engine::game_state::GameEvent;
+            use rand::SeedableRng;
+            use rand::rngs::StdRng;
+            for event in &events {
+                if let GameEvent::WeaponFired { kind, reflect: false } = event {
+                    let mut rng = StdRng::from_entropy();
+                    state.apply_incoming_weapon(*kind, &mut rng);
+                }
             }
         }
 

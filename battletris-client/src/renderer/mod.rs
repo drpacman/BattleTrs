@@ -186,12 +186,15 @@ pub fn draw_board(
 }
 
 /// Overlay active piece cells onto the already-drawn board.
+/// When `flip` is true (Upbyside active), rows are rendered in reverse so the piece
+/// visually matches the flipped board.
 pub fn draw_active_piece(
     canvas: &mut Canvas<Window>,
     kind: PieceKind,
     cells: &[(i32, i32)],
     origin_x: i32,
     origin_y: i32,
+    flip: bool,
 ) {
     let color = match kind {
         PieceKind::Die { .. } => COL_WHITE,
@@ -201,7 +204,11 @@ pub fn draw_active_piece(
     for &(col, row) in cells {
         if row < 0 { continue; }
         let px = origin_x + col * CELL_PX as i32;
-        let py = origin_y + row * CELL_PX as i32;
+        let py = if flip {
+            origin_y + (BOARD_ROWS as i32 - 1 - row) * CELL_PX as i32
+        } else {
+            origin_y + row * CELL_PX as i32
+        };
         draw_cell(canvas, px, py, color);
         match kind {
             PieceKind::Die { pips } => draw_die_pips(canvas, px, py, pips),
@@ -212,12 +219,14 @@ pub fn draw_active_piece(
 }
 
 /// Draw ghost piece (translucent outline) at given cells.
+/// When `flip` is true (Upbyside active), rows are rendered in reverse.
 pub fn draw_ghost_piece(
     canvas: &mut Canvas<Window>,
     kind: PieceKind,
     cells: &[(i32, i32)],
     origin_x: i32,
     origin_y: i32,
+    flip: bool,
 ) {
     let base = match kind {
         PieceKind::Die { .. } | PieceKind::Happy => COL_WHITE,
@@ -233,7 +242,11 @@ pub fn draw_ghost_piece(
     for &(col, row) in cells {
         if row < 0 { continue; }
         let px = origin_x + col * CELL_PX as i32;
-        let py = origin_y + row * CELL_PX as i32;
+        let py = if flip {
+            origin_y + (BOARD_ROWS as i32 - 1 - row) * CELL_PX as i32
+        } else {
+            origin_y + row * CELL_PX as i32
+        };
         // Outline only (no fill)
         let _ = canvas.draw_rect(Rect::new(px + 1, py + 1, CELL_PX - 2, CELL_PX - 2));
     }

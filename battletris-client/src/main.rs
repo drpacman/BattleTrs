@@ -109,6 +109,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     in_game = false;
                                     last_playing = None;
                                 }
+                                Scancode::S => {
+                                    app = start_single_player_game();
+                                    in_game = false;
+                                    last_playing = None;
+                                }
                                 Scancode::N => {
                                     app = AppState::ConnectionScreen {
                                         addr_buf: "127.0.0.1:7001".to_string(),
@@ -215,6 +220,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 // ─── State helpers ────────────────────────────────────────────────────────────
+
+fn start_single_player_game() -> AppState {
+    let (input_tx, input_rx) = mpsc::channel::<PlayerInput>();
+    let (render_tx, render_rx) = mpsc::sync_channel::<RenderEvent>(2);
+    thread::spawn(move || run_game_loop(input_rx, render_tx, None, None));
+    AppState::InGame { input_tx, render_rx }
+}
 
 fn start_ernie_game() -> AppState {
     let (input_tx, input_rx) = mpsc::channel::<PlayerInput>();
@@ -349,6 +361,8 @@ fn transition(
                 latest = Some(ev);
             }
 
+            let back_to_title = matches!(latest, Some(RenderEvent::Title));
+
             match &latest {
                 Some(RenderEvent::Playing(_)) => {
                     *in_game = true;
@@ -367,8 +381,13 @@ fn transition(
                 None => {}
             }
 
-            // Allow restart from GameOver screen
-            app
+            // When the game loop returns to its own title phase, go back to the
+            // real title menu so all key bindings (S, Enter, N) work again.
+            if back_to_title {
+                AppState::TitleMenu
+            } else {
+                app
+            }
         }
 
         other => other,
@@ -512,6 +531,7 @@ fn scancode_to_input(sc: Scancode) -> Option<PlayerInput> {
         Scancode::KpEnter   => Some(PlayerInput::BazaarBuy),
         Scancode::PageUp    => Some(PlayerInput::BazaarUp),
         Scancode::PageDown  => Some(PlayerInput::BazaarDown),
+        Scancode::B         => Some(PlayerInput::OpenBazaar),
         _                   => None,
     }
 }
