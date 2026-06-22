@@ -2,7 +2,7 @@
 
 A modern Rust port of **BattleTris**, the two-player networked Tetris-with-weapons game originally written at Brown University in spring 1994 by Bryan Cantrill, Charlie Hoecker and Mike Shapiro as a CS32 final project.
 
-The original source and its history live in the [`BattleTris/`](https://github.com/bcantrill/BattleTris) repo. A fuller account of the original game's creation can be found [here](https://bcantrill.dtrace.org/2026/05/25/a-portentous-reunion/).
+The original source and its history live in the [`BattleTris`](https://github.com/bcantrill/BattleTris) repo. A fuller account of the original game's creation can be found [here](https://bcantrill.dtrace.org/2026/05/25/a-portentous-reunion/).
 
 ---
 
