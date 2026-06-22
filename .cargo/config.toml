@@ -1,0 +1,5 @@
+[target.aarch64-apple-darwin]
+rustflags = ["-L", "/opt/homebrew/lib"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-L", "native=C:/vcpkg/installed/arm64-windows/lib"]

@@ -3,6 +3,7 @@ members = [
     "battletris-engine",
     "battletris-client",
     "battletris-server",
+    "battletris-web",
 ]
 resolver = "2"
 
@@ -11,3 +12,7 @@ serde = { version = "1", features = ["derive"] }
 bincode = "1"
 rand = { version = "0.8", features = ["small_rng"] }
 tokio = { version = "1", features = ["full"] }
+
+[profile.release]
+opt-level = "s"
+lto = true

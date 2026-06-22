@@ -4,7 +4,7 @@
 - **Project Name**: BattleTrisRs
 - **Project Type**: Brownfield (porting C++ source to Rust)
 - **Start Date**: 2026-06-13T00:00:00Z
-- **Current Stage**: CONSTRUCTION - Build and Test (Unit 3 Code Generation COMPLETED)
+- **Current Stage**: COMPLETED — Browser Client Feature delivered; Operations phase is a placeholder
 
 ## Workspace State
 - **Existing Code**: Yes (C++ source in BattleTris/usr/src/)
@@ -45,6 +45,15 @@
 | Functional Design - Unit 3 (network-and-db) | COMPLETED | 2026-06-14 — Q1=B (title menu), Q2=B (server bazaar), Q3=C (15s void), Q4=A (lock only), Q5=A (reject dup); 3 artifacts generated |
 | Code Generation - Unit 3 (network-and-db) | COMPLETED | 2026-06-14 — 19 steps; relay server, TCP client, ELO, PlayerDb, AppState machine; 83 tests pass; 0 warnings |
 | Build and Test | COMPLETED | 2026-06-14 — cargo build --workspace clean; cargo test --workspace 83/83 pass; manual smoke-test pending |
-| **Unit 4 — Web Browser UI** | | |
-| Requirements Analysis (U4) | COMPLETED | 2026-06-14 — Q1=A (WASM+Yew), Q2=A→upgrade server, Q3=B (net-only), Q4=A (server serves HTTP), Q5=A (shared ELO), Q6=A (Canvas), Q7=A (same keys), Q8=A (Trunk), Q9=A (battletris-web), Q10=D (no NFRs), Q11=B, Q12=C |
-| Workflow Planning (U4) | COMPLETED | 2026-06-14 — web-ui-execution-plan.md; 2 units: server-websocket + web-client; skip User Stories / NFR / Infrastructure |
+| **Browser Client Feature** | | |
+| Requirements Analysis (Browser) | COMPLETED | 2026-06-22 — Q1=A (WASM engine), Q2=A (Canvas/web-sys), Q3=A (WS+TCP on same server), Q4=C (all cross-play), Q5=C (network only), Q6=A (Trunk), Q7=A (server serves static), Q8=B (network play only), Q9=A (battletris-web), Q10=A (security ext enabled), Q11=B (no PBT) |
+| Workflow Planning (Browser) | COMPLETED | 2026-06-22 — browser-client-execution-plan.md; 2 units: Unit A (server WS+HTTP) + Unit B (battletris-web WASM); security extension active |
+| Application Design (Browser) | COMPLETED | 2026-06-22 — 5 artifacts; 6 new components; GameConn trait; WsRelayService + HttpStaticService; security compliance verified |
+| Units Generation (Browser) | COMPLETED | 2026-06-22 — 2 units: Unit A (server-ws-http) + Unit B (battletris-web-wasm); entry/exit criteria defined; risk register |
+| Functional Design — Unit A (Server WS+HTTP) | COMPLETED | 2026-06-22 — GameConn trait + TcpConn/WsConn; refactored session.rs/server.rs; WsListener rate limit + origin; HttpServer router; protocol::encode_raw/decode_raw additions; 11 test scenarios |
+| NFR Requirements — Unit A | COMPLETED | 2026-06-22 — 8 security NFRs (NFR-A-SEC-01 through NFR-A-SEC-08) + 2 performance NFRs; full compliance table |
+| NFR Design — Unit A | COMPLETED | 2026-06-22 — 6 NFR patterns: SetResponseHeaderLayer, Message::Binary match, MAX_FRAME_BYTES const, fixed error strings, relay match-on-Err, crates.io deps |
+| Code Generation — Unit A | COMPLETED | 2026-06-22 — 0 errors, 0 warnings; 89 tests pass (78 engine + 11 server); conn.rs/ws_listener.rs/http_server.rs new; server.rs/session.rs/main.rs refactored; encode_raw/decode_raw in engine |
+| Functional Design — Unit B (battletris-web) | COMPLETED | 2026-06-22 — rAF loop pattern; WsTransport with owned closures; InputHandler; CanvasRenderer (5x7 bitmap font port, same layout constants); phase state machine; ?server= query param for dev; 12 sections |
+| Code Generation — Unit B | COMPLETED | 2026-06-22 — 0 errors, 0 warnings; 89 tests pass; input.rs/transport.rs/renderer/* /app.rs/lib.rs; Cargo.toml full deps; Trunk.toml; index.html; native + wasm32 builds clean |
+| Build and Test (Browser) | COMPLETED | 2026-06-22 — user approved; native+WASM builds clean; 89 tests pass; trunk build + manual browser integration confirmed |

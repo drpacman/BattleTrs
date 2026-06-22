@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>BattleTris</title>
+    <style>
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            margin: 0;
+            padding: 0;
+        }
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="game-canvas" width="820" height="860"></canvas>
+    <script type="module">
+        import init from './battletris_web.js';
+        init();
+    </script>
+</body>
+</html>

@@ -117,12 +117,24 @@ pub fn frame_len(buf: &[u8]) -> usize {
     4 + payload_len
 }
 
+/// Encode a `GameMessage` to raw bincode bytes with no length prefix.
+/// Used by `WsConn` where WebSocket provides its own frame boundaries.
+pub fn encode_raw(msg: &GameMessage) -> Result<Vec<u8>, ProtocolError> {
+    bincode::serialize(msg).map_err(|e| ProtocolError::EncodeError(e.to_string()))
+}
+
+/// Decode a `GameMessage` from raw bincode bytes with no length prefix.
+/// Used by `WsConn`.
+pub fn decode_raw(buf: &[u8]) -> Result<GameMessage, ProtocolError> {
+    bincode::deserialize(buf).map_err(|e| ProtocolError::DecodeError(e.to_string()))
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::board::{Board, BoardSnapshot};
+    use crate::engine::board::Board;
     use crate::engine::weapons::WeaponKind;
 
     fn round_trip(msg: GameMessage) -> GameMessage {
@@ -175,6 +187,30 @@ mod tests {
             GameMessage::BazaarOpen => {}
             other => panic!("wrong: {other:?}"),
         }
+    }
+
+    #[test]
+    fn encode_raw_decode_raw_roundtrip() {
+        let msg = GameMessage::GameOver {
+            winner_id: 1,
+            final_score_p1: 500,
+            final_score_p2: 300,
+            winner_name: "Bob".to_string(),
+            elo_delta_winner: 12,
+            elo_delta_loser: -12,
+        };
+        let bytes = encode_raw(&msg).unwrap();
+        // Raw encoding has no length prefix — same bytes as bincode::serialize
+        assert_eq!(bytes, bincode::serialize(&msg).unwrap());
+        match decode_raw(&bytes).unwrap() {
+            GameMessage::GameOver { winner_name, .. } => assert_eq!(winner_name, "Bob"),
+            other => panic!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_raw_rejects_garbage() {
+        assert!(decode_raw(&[0xDE, 0xAD, 0xBE, 0xEF]).is_err());
     }
 
     #[test]

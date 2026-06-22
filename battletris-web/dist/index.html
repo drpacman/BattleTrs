@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>BattleTris</title>
+    <style>
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            margin: 0;
+            padding: 0;
+        }
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+        }
+    </style>
+<link rel="modulepreload" href="/battletris-web-a05bd23150b0cc81.js" crossorigin="anonymous" integrity="sha384-YYwK5mfi9aaT/rir9guPDQIbynS3qtVr3uQ7ZNasXdkMyZK158t/n7HyJlTmrU0B"><link rel="preload" href="/battletris-web-a05bd23150b0cc81_bg.wasm" crossorigin="anonymous" integrity="sha384-VdW1ZLBMrq2YjcTeLE9sXFu1LHBrdtiaV2R2hWcHX8yfbNK+0L3/2752hGmBpI13" as="fetch" type="application/wasm"></head>
+<body>
+    <canvas id="game-canvas" width="820" height="860"></canvas>
+    <script type="module">
+        import init from './battletris_web.js';
+        init();
+    </script>
+
+<script type="module">
+import init, * as bindings from '/battletris-web-a05bd23150b0cc81.js';
+const wasm = await init({ module_or_path: '/battletris-web-a05bd23150b0cc81_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script></body>
+</html>
