@@ -1,6 +1,9 @@
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::time::{Duration, Instant};
 
+use rand::SeedableRng;
+use rand::rngs::StdRng;
+
 use battletris_engine::engine::game_state::{GameMode, GamePhase, PlayerInput, PlayingView};
 use battletris_engine::protocol::GameMessage;
 use battletris_engine::session::{apply_board_visibility, NetworkSession};
@@ -76,6 +79,14 @@ pub fn run_game_loop(
         if let Some(ref ch) = peer {
             for msg in outgoing {
                 let _ = ch.to_peer.try_send(msg);
+            }
+        } else {
+            // Solo practice: weapons loop back to self so effects are visible.
+            let mut rng = StdRng::from_entropy();
+            for msg in outgoing {
+                if let GameMessage::WeaponLaunched { kind } = msg {
+                    session.state.apply_incoming_weapon(kind, &mut rng);
+                }
             }
         }
 
