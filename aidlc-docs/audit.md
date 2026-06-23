@@ -2,6 +2,126 @@
 
 ---
 
+## Build and Test Stage — COMPLETED
+**Timestamp**: 2026-06-22T04:45:00Z
+**User Input**: "Approve and Continue"
+**AI Response**: Marked Build and Test COMPLETED. Updated aidlc-state.md to reflect full browser client feature as delivered. Proceeding to Operations (placeholder stage — no further automation).
+**Context**: CONSTRUCTION - Build and Test (Browser Client Feature) — APPROVED by user
+
+---
+
+## Build and Test Stage — IN PROGRESS (superseded above)
+**Timestamp**: 2026-06-22T04:30:00Z
+**User Input**: "continue"
+**Build Status**: Native PASS, WASM compilation PASS, trunk build PENDING (trunk not installed)
+**Test Status**: 89/89 unit tests PASS; integration tests PENDING (manual browser smoke test)
+**Files Generated**:
+- build-instructions.md
+- unit-test-instructions.md
+- integration-test-instructions.md
+- performance-test-instructions.md (N/A — LAN game)
+- build-and-test-summary.md
+**Context**: CONSTRUCTION - Build and Test (Browser Client Feature)
+
+---
+
+## Construction Unit B — Code Generation COMPLETED
+**Timestamp**: 2026-06-22T04:00:00Z
+**User Input**: "approved" (code generation plan)
+**AI Response**: Executed Unit B code generation plan. New files: battletris-web/Cargo.toml (wasm-bindgen 0.2, js-sys 0.3, web-sys 0.3 with 13 features, battletris-engine, bincode, serde, console_error_panic_hook, rand workspace dep); Trunk.toml; index.html (canvas#game-canvas 820x860, dark background); src/input.rs (InputHandler with owned keydown/keyup closures, drain() returns Vec<String>, prevent_default for arrow/space/pageup/pagedown); src/transport.rs (WsTransport with owned closures, BinaryType::Arraybuffer, sends Hello on onopen, drain_incoming()/send()/is_connected()/is_disconnected()); src/renderer/mod.rs (CanvasRenderer, full 5x7 bitmap font port from SDL2 font.rs, layout constants matching SDL2, bt_color/darken_hex/cell_color_str, draw_cell/draw_board/draw_active_piece/draw_ghost_piece/draw_next_piece/draw_die_pips/draw_face/draw_text/text_w); src/renderer/playing.rs (draw_playing, draw_board_with_effects with all effects: gimp flash, upbyside, blind cells, twilight, bug; draw_weapon_chips, draw_stats with arsenal/slick/bazaar-til); src/renderer/overlay.rs (draw_bazaar, draw_quit_confirm); src/renderer/screens.rs (draw_connecting, draw_waiting, draw_name_taken, draw_disconnected, draw_game_over with ELO); src/app.rs (WasmApp, WebPhase enum, tick() with quit confirm/game-over/bazaar handling, process_message() porting process_peer_message from game_loop.rs, forward_events(), render_in_game(), key_to_input() matching SDL2 scancode map, apply_board_visibility(), ws_url_from_location() with ?server= dev override); src/lib.rs (start() with console_error_panic_hook, thread_local APP+TICK, schedule_next_frame() rAF pattern). Fixes during build: PieceKind moved to engine::piece module; ArrayBuffer/Uint8Array are js_sys types not web_sys features; profile.release moved to workspace Cargo.toml. Build result: 0 errors, 0 warnings; cargo build --workspace clean; cargo build -p battletris-web --target wasm32-unknown-unknown clean; cargo test --workspace 89/89 pass.
+**Context**: CONSTRUCTION - Code Generation — Unit B: battletris-web-wasm (COMPLETED)
+
+---
+
+## Construction Unit B — Functional Design COMPLETED
+**Timestamp**: 2026-06-22T03:00:00Z
+**User Input**: "Proceed to Unit B"
+**AI Response**: Read game_loop.rs, renderer/mod.rs, renderer/font.rs from SDL2 client. Generated functional-design.md for Unit B covering: connection via window.prompt + origin-derived WS URL + ?server= dev override; rAF pattern with thread_local TICK closure; WasmApp phase state machine (Connecting→WaitingForOpponent→Playing→InBazaar→GameOver); WsTransport with owned closures (no forget()); InputHandler with 10 key mappings + prevent_default; CanvasRenderer with same layout constants as SDL2, 5x7 bitmap font port, CSS hex colors; process_peer_message logic ported from game_loop.rs; outgoing message generation; full Cargo.toml, Trunk.toml, index.html specs. Updated aidlc-state.md (FD Unit B COMPLETED, CG Unit B PENDING).
+**Context**: CONSTRUCTION - Functional Design — Unit B: battletris-web-wasm (COMPLETED)
+
+---
+
+## Construction Unit A — Code Generation COMPLETED
+**Timestamp**: 2026-06-22T02:30:00Z
+**User Input**: "approved" (plan), then "continue" (NFR Design)
+**AI Response**: Executed 11-step code generation plan. Changes: Cargo.toml workspace (added battletris-web member); battletris-engine Cargo.toml (getrandom WASM target dep); protocol/mod.rs (encode_raw + decode_raw + 2 tests); battletris-server/Cargo.toml (async-trait, axum 0.7 ws feature, tower-http 0.5 fs+set-header, tower 0.5 util dev-dep, tempfile dev-dep); new conn.rs (GameConn async_trait, TcpConn, WsConn, MAX_FRAME_BYTES=65536, tests); new ws_listener.rs (ws_upgrade_handler using axum WebSocketUpgrade + ConnectInfo + State); new http_server.rs (build_router, SetResponseHeaderLayer ×2, ServeDir fallback, 2 integration tests); refactored server.rs (SharedState struct, run_tcp_listener, handle_client with Box<dyn GameConn>, run_web_server); refactored session.rs (run_session with Box<dyn GameConn>, no local frame helpers); refactored main.rs (port=7000 default, web_port=7001, web_dir, dual tokio::spawn + join); battletris-client default address updated to 127.0.0.1:7000; battletris-web stub crate created. Build: 0 errors, 0 warnings. Tests: 89/89 pass (78 engine + 11 server including 2 new HTTP integration tests).
+**Context**: CONSTRUCTION - Code Generation — Unit A: server-ws-http (COMPLETED)
+
+---
+
+## Construction Unit A — NFR Design COMPLETED
+**Timestamp**: 2026-06-22T02:00:00Z
+**User Input**: "continue"
+**AI Response**: Generated nfr-design.md mapping all 6 NFRs to concrete Rust patterns: SetResponseHeaderLayer for headers; Message::Binary match + skip ping/pong/text for WS validation; MAX_FRAME_BYTES const in conn.rs for both adapters; fixed string literals for generic errors; match-on-Err + eprintln in relay for error handling; version-pinned crates.io deps. Updated aidlc-state.md (NFR Design COMPLETED, Code Generation Unit A PENDING).
+**Context**: CONSTRUCTION - NFR Design — Unit A: server-ws-http (COMPLETED)
+
+---
+
+## Construction Unit A — NFR Requirements Revised (LAN simplification)
+**Timestamp**: 2026-06-22T01:50:00Z
+**User Input**: "Keep it simple, this is going to be pointing at a local network IP address, not DNS, revise security NFRs accordingly"
+**AI Response**: Revised nfr-requirements.md removing: HSTS (no TLS), Content-Security-Policy (no public exposure), Origin allowlist (no cross-origin threat on LAN IP), per-IP rate limiting (trusted LAN players). Retained: bounded deserialisation (MAX_FRAME_BYTES), basic headers (X-Content-Type-Options, X-Frame-Options), no stack traces in errors, RAII resource release, supply chain (crates.io). Updated functional-design.md to match: removed WsListenerState rate-limit state, removed ConnGuard, simplified axum handler, simplified security_headers_layer, trimmed test table. 6 NFRs remain (5 security, 1 perf).
+**Context**: CONSTRUCTION - NFR Requirements — Unit A: server-ws-http (REVISED)
+
+---
+
+## Construction Unit A — NFR Requirements COMPLETED
+**Timestamp**: 2026-06-22T01:45:00Z
+**User Input**: "continue"
+**AI Response**: Generated nfr-requirements.md for Unit A with 8 security NFRs (HTTP headers, WS validation, origin allowlist, bounded deserialization, generic errors, rate limiting, RAII resource release, supply chain) and 2 performance NFRs (startup latency, connection overhead). All 15 security rules reviewed in compliance table; 8 compliant with NFRs, 5 N/A. Updated aidlc-state.md (NFR Requirements COMPLETED, NFR Design PENDING).
+**Context**: CONSTRUCTION - NFR Requirements — Unit A: server-ws-http (COMPLETED)
+
+---
+
+## Construction Unit A — Functional Design COMPLETED
+**Timestamp**: 2026-06-22T01:35:00Z
+**User Input**: "A" (proceed to Units Generation — Functional Design followed automatically)
+**AI Response**: Read existing server source (main.rs, server.rs, session.rs, Cargo.toml). Generated construction/server-ws-http/functional-design/functional-design.md covering: GameConn async_trait + TcpConn/WsConn adapters; protocol::encode_raw/decode_raw additions in engine; refactored handle_client/run_session signatures; WsListenerState with Mutex<HashMap> rate limiting and Origin allowlist validation; axum router layout with security headers via tower-http; updated main.rs CLI args and dual-task spawn; 11 test scenarios defined. Updated aidlc-state.md (Functional Design Unit A COMPLETED, NFR Requirements Unit A PENDING).
+**Context**: CONSTRUCTION - Functional Design — Unit A: server-ws-http (COMPLETED)
+
+---
+
+## Browser Client — Units Generation COMPLETED
+**Timestamp**: 2026-06-22T01:20:00Z
+**User Input**: "A"
+**AI Response**: Proceeded to Units Generation. Generated browser-client-units.md defining: Unit A (server-ws-http) — new conn.rs/ws_listener.rs/http_server.rs + modified main.rs/session.rs + 6 exit criteria including origin rejection test, rate limit test, security header verification; Unit B (battletris-web-wasm) — new crate with 7 files, 5 exit criteria including full network game manual test. Entry/exit criteria, dependency chain, NFR skip rationale, and 5-entry risk register all documented. Updated aidlc-state.md: Units Generation COMPLETED, Functional Design Unit A PENDING (next).
+**Context**: INCEPTION - Units Generation (Browser Client — COMPLETED)
+
+---
+
+## Browser Client — Application Design COMPLETED
+**Timestamp**: 2026-06-22T01:10:00Z
+**User Input**: "Done, continue"
+**AI Response**: Application design questions validated (Q1=A/Q2=B/Q3=A/Q4=A/Q5=A — no contradictions). Generated 5 application design artifacts: browser-client-components.md (6 new components: WsListener, HttpServer, WasmApp, WsTransport, CanvasRenderer, InputHandler + modified Server with GameConn trait), browser-client-component-methods.md (full method signatures incl. GameConn trait, key mapping table), browser-client-services.md (WsRelayService + HttpStaticService), browser-client-component-dependency.md (crate graph, network communication patterns, module structure, new dependencies), browser-client-application-design.md (consolidated summary, security compliance table). Updated aidlc-state.md (Application Design COMPLETED, Units Generation PENDING). Updated plan checkboxes. Security compliance: all 15 rules reviewed — 8 compliant, 7 N/A, 0 blocking findings.
+**Context**: INCEPTION - Application Design (Browser Client — COMPLETED)
+
+---
+
+## Browser Client — Application Design Plan Created
+**Timestamp**: 2026-06-22T00:35:00Z
+**User Input**: "Approved and continue"
+**AI Response**: Workflow plan approved. Loaded existing application design artifacts. Created browser-client-application-design-plan.md with 5 design questions: Q1 (port layout), Q2 (static file delivery), Q3 (HTTP/WS library), Q4 (connection unification strategy), Q5 (WASM game loop). Awaiting user answers.
+**Context**: INCEPTION - Application Design (Browser Client — questions pending)
+
+---
+
+## Browser Client — Workflow Planning COMPLETE
+**Timestamp**: 2026-06-22T00:30:00Z
+**User Input**: "filled in, please continue"
+**Answers**: Q1=A (WASM engine), Q2=A (Canvas/web-sys), Q3=A (WS+TCP on same server), Q4=C (all cross-play combinations), Q5=C (network play only in browser), Q6=A (Trunk), Q7=A (server serves static files), Q8=B (network play only scope), Q9=A (battletris-web), Q10=A (security extension enabled), Q11=B (no PBT)
+**AI Response**: No contradictions. Security extension loaded (15 rules, SECURITY-01 through SECURITY-15). Generated browser-client-requirements.md (11 FRs, 8 security NFRs, 2 additional NFRs). Generated browser-client-execution-plan.md: 2 units (Unit A: server WS+HTTP with security NFRs; Unit B: battletris-web WASM client). Security compliance reviewed at Requirements stage — all applicable rules addressed, no blocking findings. Updated aidlc-state.md. Awaiting user approval.
+**Context**: INCEPTION - Workflow Planning (Browser Client — COMPLETED, awaiting approval)
+
+---
+
+## Browser Client Planning — Workspace Detection
+**Timestamp**: 2026-06-22T00:00:00Z
+**User Input**: "using AIDLC make a plan to adapt the project so a browser based client is possible, whilst maintaining the desktop application capability we already have. Re-use as much of the existing game implementation as possible, whilst being free to implement networking and rendering as appropriate for a browser"
+**AI Response**: Starting new AIDLC planning cycle for browser client feature. Existing brownfield project: Units 1-3 complete (engine, weapons/AI, network/DB), prior Unit 4 web UI planning from 2026-06-14 had no surviving plan files. Treating as fresh planning pass. Workspace Detection: brownfield confirmed, RE artifacts current, engine/server/client all built. Proceeding to Requirements Analysis — creating clarifying questions.
+**Context**: INCEPTION - Workspace Detection (Browser Client)
+
+---
+
 ## Unit 4 — Web Browser UI — Workflow Start (Workspace Detection)
 **Timestamp**: 2026-06-14T12:00:00Z
 **User Input**: "Using AIDLC let provide an alternative UI version of the client application which can run in a web browser as an alternative"

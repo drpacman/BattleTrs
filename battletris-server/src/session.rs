@@ -1,80 +1,38 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use battletris_engine::protocol::GameMessage;
 
-use battletris_engine::protocol::{self, GameMessage, ProtocolError};
-
+use crate::conn::GameConn;
 use crate::db::PlayerDb;
 use crate::elo;
 
 const RECONNECT_TIMEOUT_SECS: u64 = 15;
-const MAX_FRAME_BYTES: usize = 1_048_576; // 1 MB sanity limit
-
-// ─── Frame helpers ───────────────────────────────────────────────────────────
-
-async fn read_frame(stream: &mut TcpStream, buf: &mut Vec<u8>) -> std::io::Result<GameMessage> {
-    loop {
-        match protocol::decode(buf) {
-            Ok(msg) => {
-                let consumed = protocol::frame_len(buf);
-                buf.drain(..consumed);
-                return Ok(msg);
-            }
-            Err(ProtocolError::NeedMoreData) => {}
-            Err(e) => {
-                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()));
-            }
-        }
-        let mut chunk = [0u8; 4096];
-        let n = stream.read(&mut chunk).await?;
-        if n == 0 {
-            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "connection closed"));
-        }
-        if buf.len() + n > MAX_FRAME_BYTES {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "frame too large"));
-        }
-        buf.extend_from_slice(&chunk[..n]);
-    }
-}
-
-async fn write_frame(stream: &mut TcpStream, msg: &GameMessage) -> std::io::Result<()> {
-    let bytes = protocol::encode(msg)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-    stream.write_all(&bytes).await
-}
-
-// ─── Session ─────────────────────────────────────────────────────────────────
 
 pub async fn run_session(
-    mut a: TcpStream,
+    mut a: Box<dyn GameConn>,
     name_a: String,
-    mut b: TcpStream,
+    mut b: Box<dyn GameConn>,
     name_b: String,
     db: Arc<Mutex<PlayerDb>>,
 ) {
     eprintln!("[SERVER] session start: {name_a} vs {name_b}");
 
-    // Pre-create player records so ELO is available immediately.
     {
         let mut db = db.lock().unwrap();
         db.get_or_create(&name_a);
         db.get_or_create(&name_b);
     }
 
-    // Signal both clients to start.
-    let _ = write_frame(&mut a, &GameMessage::GameStart).await;
-    let _ = write_frame(&mut b, &GameMessage::GameStart).await;
+    let _ = a.write_frame(&GameMessage::GameStart).await;
+    let _ = b.write_frame(&GameMessage::GameStart).await;
 
-    let mut buf_a: Vec<u8> = Vec::new();
-    let mut buf_b: Vec<u8> = Vec::new();
     let mut combined_lines: u32 = 0;
     let mut next_bazaar_threshold: u32 = 20;
 
     loop {
         tokio::select! {
-            result = read_frame(&mut a, &mut buf_a) => {
+            result = a.read_frame() => {
                 match result {
                     Ok(msg) => {
                         if !handle_message(
@@ -84,14 +42,14 @@ pub async fn run_session(
                             &db,
                         ).await { return; }
                     }
-                    Err(_) => {
-                        eprintln!("[SERVER] {name_a} disconnected");
-                        if !handle_disconnect(&name_b, &mut b).await { return; }
+                    Err(e) => {
+                        eprintln!("[SERVER] {name_a} disconnected: {e}");
+                        handle_disconnect(&name_b, &mut b).await;
                         return;
                     }
                 }
             }
-            result = read_frame(&mut b, &mut buf_b) => {
+            result = b.read_frame() => {
                 match result {
                     Ok(msg) => {
                         if !handle_message(
@@ -101,9 +59,9 @@ pub async fn run_session(
                             &db,
                         ).await { return; }
                     }
-                    Err(_) => {
-                        eprintln!("[SERVER] {name_b} disconnected");
-                        if !handle_disconnect(&name_a, &mut a).await { return; }
+                    Err(e) => {
+                        eprintln!("[SERVER] {name_b} disconnected: {e}");
+                        handle_disconnect(&name_a, &mut a).await;
                         return;
                     }
                 }
@@ -112,14 +70,12 @@ pub async fn run_session(
     }
 }
 
-/// Handle one message from `sender_name` → relay to `peer`, intercept game-logic messages.
-/// Returns false if the session should end.
 async fn handle_message(
     msg: GameMessage,
     sender_name: &str,
     peer_name: &str,
-    _sender: &mut TcpStream,
-    peer: &mut TcpStream,
+    sender: &mut Box<dyn GameConn>,
+    peer: &mut Box<dyn GameConn>,
     combined_lines: &mut u32,
     next_threshold: &mut u32,
     db: &Arc<Mutex<PlayerDb>>,
@@ -130,15 +86,23 @@ async fn handle_message(
             while *combined_lines >= *next_threshold {
                 *next_threshold += 20;
                 eprintln!("[SERVER] combined_lines={combined_lines} — sending BazaarOpen");
-                let _ = write_frame(_sender, &GameMessage::BazaarOpen).await;
-                let _ = write_frame(peer, &GameMessage::BazaarOpen).await;
+                let _ = sender.write_frame(&GameMessage::BazaarOpen).await;
+                let _ = peer.write_frame(&GameMessage::BazaarOpen).await;
             }
-            // Relay to peer regardless.
-            let _ = write_frame(peer, &msg).await;
+            let _ = peer.write_frame(&msg).await;
+        }
+
+        GameMessage::PlayerQuit => {
+            eprintln!("[SERVER] {sender_name} quit — notifying {peer_name}");
+            let _ = peer.write_frame(&GameMessage::PlayerQuit).await;
+            // Close with a WebSocket close frame so the browser delivers the
+            // PlayerQuit binary frame via onmessage before firing onclose.
+            // A bare drop would send a TCP RST and could discard the frame.
+            peer.close().await;
+            return false;
         }
 
         GameMessage::GameOver { .. } => {
-            // sender's board topped out → sender is the LOSER, peer is the WINNER.
             eprintln!("[SERVER] {sender_name} lost — {peer_name} wins");
             let (winner_elo, loser_elo) = {
                 let db = db.lock().unwrap();
@@ -159,26 +123,25 @@ async fn handle_message(
                 elo_delta_winner: deltas.0,
                 elo_delta_loser: deltas.1,
             };
-            let _ = write_frame(_sender, &enriched).await;
-            let _ = write_frame(peer, &enriched).await;
-            eprintln!("[SERVER] ELO updated: {peer_name} +{} / {sender_name} {}", deltas.0, deltas.1);
+            let _ = sender.write_frame(&enriched).await;
+            let _ = peer.write_frame(&enriched).await;
+            eprintln!(
+                "[SERVER] ELO updated: {peer_name} +{} / {sender_name} {}",
+                deltas.0, deltas.1
+            );
             return false;
         }
 
-        // Transparent relay for all other messages.
         _ => {
-            let _ = write_frame(peer, &msg).await;
+            let _ = peer.write_frame(&msg).await;
         }
     }
     true
 }
 
-/// One client dropped. Notify peer; wait up to 15s. Session always ends (void — no ELO).
-async fn handle_disconnect(peer_name: &str, peer: &mut TcpStream) -> bool {
-    let _ = write_frame(peer, &GameMessage::PeerDisconnected).await;
-    // Wait briefly to let the peer receive the message, then void.
+async fn handle_disconnect(peer_name: &str, peer: &mut Box<dyn GameConn>) {
+    let _ = peer.write_frame(&GameMessage::PeerDisconnected).await;
     tokio::time::sleep(Duration::from_secs(RECONNECT_TIMEOUT_SECS)).await;
-    let _ = write_frame(peer, &GameMessage::GameVoid).await;
+    let _ = peer.write_frame(&GameMessage::GameVoid).await;
     eprintln!("[SERVER] reconnect window expired for {peer_name} — game voided");
-    false
 }

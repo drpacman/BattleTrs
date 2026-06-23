@@ -1,7 +1,10 @@
+mod conn;
 mod db;
 mod elo;
+mod http_server;
 mod server;
 mod session;
+mod ws_listener;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -9,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use clap::{Parser, Subcommand};
 
 use db::PlayerDb;
+use server::SharedState;
 
 const DEFAULT_DB_PATH: &str = "players.json";
 
@@ -27,9 +31,17 @@ struct Cli {
 enum Command {
     /// Start the relay server.
     Serve {
-        /// TCP port to listen on.
-        #[arg(short, long, default_value_t = 7001)]
+        /// TCP port for desktop clients.
+        #[arg(long, default_value_t = 7001)]
         port: u16,
+
+        /// HTTP + WebSocket port for browser clients.
+        #[arg(long, default_value_t = 80)]
+        web_port: u16,
+
+        /// Path to compiled battletris-web dist/ directory.
+        #[arg(long, default_value = "./dist")]
+        web_dir: PathBuf,
     },
     /// List all registered players sorted by ELO.
     Players,
@@ -44,10 +56,34 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Serve { port } => {
+        Command::Serve { port, web_port, web_dir } => {
+            if !web_dir.exists() {
+                eprintln!(
+                    "Error: web-dir '{}' does not exist. Run 'trunk build' in battletris-web/ first.",
+                    web_dir.display()
+                );
+                std::process::exit(1);
+            }
+
             let db = Arc::new(Mutex::new(PlayerDb::load(&cli.db)));
+            let shared = Arc::new(SharedState::new(db));
+
             let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            rt.block_on(server::run_server(port, db));
+            rt.block_on(async {
+                let tcp_shared = Arc::clone(&shared);
+                let tcp_task = tokio::spawn(async move {
+                    server::run_tcp_listener(port, tcp_shared).await;
+                });
+
+                let web_shared = Arc::clone(&shared);
+                let web_task = tokio::spawn(async move {
+                    server::run_web_server(web_port, web_dir, web_shared).await;
+                });
+
+                let (r1, r2) = tokio::join!(tcp_task, web_task);
+                if let Err(e) = r1 { eprintln!("[SERVER] TCP task error: {e}"); }
+                if let Err(e) = r2 { eprintln!("[SERVER] web task error: {e}"); }
+            });
         }
 
         Command::Players => {

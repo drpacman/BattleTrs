@@ -107,6 +107,11 @@ fn do_bazaar(
     to_player: &SyncSender<GameMessage>,
     trigger: &str,
 ) {
+    // Open Ernie's own bazaar (no-op if already InBazaar from own line clears).
+    state.open_bazaar_now();
+    // Tell the player to open their bazaar — Ernie is the authority, like a server.
+    let _ = to_player.try_send(GameMessage::BazaarOpen);
+
     let funds_before = state.score.funds;
     let bought = ai.go_shopping(&mut state.score, &mut state.arsenal, rng);
     let spent = funds_before - state.score.funds;
@@ -122,7 +127,6 @@ fn do_bazaar(
 
     launch_queued_weapons(state, ai, to_player);
     state.tick(Some(PlayerInput::BazaarExit), 0);
-    let _ = to_player.try_send(GameMessage::BazaarEnd);
     send_score(state, to_player);
 }
 
@@ -134,13 +138,8 @@ fn process_ernie_events(
 ) {
     use battletris_engine::engine::game_state::GameEvent;
 
-    let mut lines_cleared = 0u32;
-
     for event in events {
         match event {
-            GameEvent::LinesCleared(n) => {
-                lines_cleared += *n as u32;
-            }
             GameEvent::GameOver { won: false } | GameEvent::RiseUpTopOut => {
                 let _ = to_player.try_send(GameMessage::GameOver {
                     winner_id: 1,
@@ -162,14 +161,6 @@ fn process_ernie_events(
             }
             _ => {}
         }
-    }
-
-    if lines_cleared > 0 {
-        eprintln!("[ERNIE] cleared {lines_cleared} line(s) — funds=${}, combined={}", state.score.funds, state.score.combined_lines);
-        let _ = to_player.try_send(GameMessage::LinesCleared {
-            count: lines_cleared,
-            funds_earned: 0,
-        });
     }
 }
 
