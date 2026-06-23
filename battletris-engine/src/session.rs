@@ -23,6 +23,7 @@ pub struct NetworkSession {
     /// Guards against sending the local-defeat notification more than once.
     pub did_send_game_over: bool,
     pub player_name: Option<String>,
+    pub opponent_name: Option<String>,
 }
 
 impl NetworkSession {
@@ -34,6 +35,7 @@ impl NetworkSession {
             network_result: None,
             did_send_game_over: false,
             player_name,
+            opponent_name: None,
         }
     }
 
@@ -55,9 +57,11 @@ impl NetworkSession {
         let mut replies: Vec<GameMessage> = Vec::new();
 
         match msg {
-            GameMessage::GameStart => {
-                // Clear disconnection flag; callers handle mode-specific start logic.
+            GameMessage::GameStart { opponent_name } => {
                 self.peer_disconnected = false;
+                if self.opponent_name.is_none() && !opponent_name.is_empty() {
+                    self.opponent_name = Some(opponent_name);
+                }
             }
 
             GameMessage::BazaarOpen => {

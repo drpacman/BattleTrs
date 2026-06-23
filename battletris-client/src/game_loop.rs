@@ -27,9 +27,11 @@ pub fn run_game_loop(
     render_tx: SyncSender<RenderEvent>,
     peer: Option<PeerChannels>,
     player_name: Option<String>,
+    opponent_name: Option<String>,
 ) {
     let seed = rand::random::<u64>();
     let mut session = NetworkSession::new(seed, player_name);
+    session.opponent_name = opponent_name;
 
     if peer.is_some() {
         session.state.mode = GameMode::VsNetwork;
@@ -96,6 +98,8 @@ pub fn run_game_loop(
                     view.opponent_board_accuracy,
                 );
                 view.peer_disconnected = session.peer_disconnected;
+                view.opponent_name = session.opponent_name.clone();
+                view.player_name = session.player_name.clone();
                 Some(RenderEvent::Playing(view))
             }
 

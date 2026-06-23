@@ -66,8 +66,14 @@ fn draw_board_with_effects<D: DrawContext>(ctx: &mut D, view: &PlayingView, is_p
     };
 
     let Some(snapshot) = snapshot else {
-        ctx.fill_rect(origin_x, origin_y, BOARD_PX_W, BOARD_PX_H, Color::rgb(15, 15, 15));
-        draw_text(ctx, "WAITING...", origin_x + 50.0, origin_y + 375.0, Color::rgb(60, 60, 60), 3.0);
+        ctx.fill_rect(origin_x, origin_y, BOARD_PX_W, BOARD_PX_H, Color::PANEL);
+        for row in 0..BOARD_ROWS {
+            for col in 0..BOARD_COLS {
+                let px = origin_x + col as f64 * CELL_PX;
+                let py = origin_y + row as f64 * CELL_PX;
+                ctx.fill_rect(px + 13.0, py + 13.0, 2.0, 2.0, Color::GRID);
+            }
+        }
         return;
     };
 
@@ -150,7 +156,8 @@ fn draw_stats<D: DrawContext>(ctx: &mut D, view: &PlayingView) {
     draw_next_piece(ctx, view.next_piece, sx + 35.0, sy + 5.0);
     sy += 75.0;
 
-    section_label(ctx, sx, &mut sy, "PLAYER");
+    let player_label = view.player_name.as_deref().unwrap_or("PLAYER");
+    section_label(ctx, sx, &mut sy, player_label);
     stat_row(ctx, sx, &mut sy, "SCORE", &format!("{}", sv.score));
     stat_row(ctx, sx, &mut sy, "LINES", &format!("{}", sv.lines));
 
@@ -176,7 +183,8 @@ fn draw_stats<D: DrawContext>(ctx: &mut D, view: &PlayingView) {
     draw_text(ctx, &format!("{}", sv.lines_until_bazaar), sx + 75.0, sy, baz_color, 3.0);
     sy += 34.0;
 
-    section_label(ctx, sx, &mut sy, "OPPONENT");
+    let opp_label = view.opponent_name.as_deref().unwrap_or("OPPONENT");
+    section_label(ctx, sx, &mut sy, opp_label);
     stat_row(ctx, sx, &mut sy, "SCORE", &format!("{}", sv.op_score));
     stat_row(ctx, sx, &mut sy, "LINES", &format!("{}", sv.op_lines));
     if sv.show_op_funds {

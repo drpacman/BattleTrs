@@ -24,8 +24,8 @@ pub async fn run_session(
         db.get_or_create(&name_b);
     }
 
-    let _ = a.write_frame(&GameMessage::GameStart).await;
-    let _ = b.write_frame(&GameMessage::GameStart).await;
+    let _ = a.write_frame(&GameMessage::GameStart { opponent_name: name_b.clone() }).await;
+    let _ = b.write_frame(&GameMessage::GameStart { opponent_name: name_a.clone() }).await;
 
     let mut combined_lines: u32 = 0;
     let mut next_bazaar_threshold: u32 = 20;

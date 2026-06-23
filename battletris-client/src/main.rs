@@ -223,7 +223,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn start_single_player_game() -> AppState {
     let (input_tx, input_rx) = mpsc::channel::<PlayerInput>();
     let (render_tx, render_rx) = mpsc::sync_channel::<RenderEvent>(2);
-    thread::spawn(move || run_game_loop(input_rx, render_tx, None, None));
+    thread::spawn(move || run_game_loop(input_rx, render_tx, None, None, None));
     AppState::InGame { input_tx, render_rx }
 }
 
@@ -240,7 +240,7 @@ fn start_ernie_game() -> AppState {
         from_peer: from_ernie_rx,
         to_peer: to_ernie_tx,
     });
-    thread::spawn(move || run_game_loop(input_rx, render_tx, peer, None));
+    thread::spawn(move || run_game_loop(input_rx, render_tx, peer, None, Some("Ernie".to_string())));
 
     AppState::InGame { input_tx, render_rx }
 }
@@ -328,7 +328,7 @@ fn transition(
         AppState::WaitingForOpponent { net, player_name } => {
             // Poll for GameStart from server
             match net.from_server.try_recv() {
-                Ok(GameMessage::GameStart) => {
+                Ok(GameMessage::GameStart { opponent_name }) => {
                     // Spawn the game loop with network channels
                     let (input_tx, input_rx) = mpsc::channel::<PlayerInput>();
                     let (render_tx, render_rx) = mpsc::sync_channel::<RenderEvent>(2);
@@ -339,7 +339,7 @@ fn transition(
                         to_peer: net.to_server,
                     });
                     thread::spawn(move || {
-                        run_game_loop(input_rx, render_tx, peer, Some(name_clone))
+                        run_game_loop(input_rx, render_tx, peer, Some(name_clone), Some(opponent_name))
                     });
 
                     *in_game = false;

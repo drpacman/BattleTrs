@@ -149,7 +149,7 @@ mod tests {
         // A worst-case full BoardSnapshot is well under 1 KiB.
         // 64 KiB gives a large safety margin.
         assert_eq!(MAX_FRAME_BYTES, 65_536);
-        let msg = GameMessage::GameStart;
+        let msg = GameMessage::GameStart { opponent_name: String::new() };
         let raw = protocol::encode_raw(&msg).unwrap();
         assert!(raw.len() < MAX_FRAME_BYTES);
     }

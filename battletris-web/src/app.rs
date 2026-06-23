@@ -148,8 +148,8 @@ impl WasmApp {
                                 error: Some("NAME ALREADY IN USE".into()),
                             };
                         }
-                        GameMessage::GameStart => {
-                            return start_game(transport, player_name);
+                        GameMessage::GameStart { opponent_name } => {
+                            return start_game(transport, player_name, opponent_name);
                         }
                         _ => {}
                     }
@@ -171,7 +171,7 @@ impl WasmApp {
                 let mut name_taken = false;
                 for msg in transport.drain_incoming() {
                     match msg {
-                        GameMessage::GameStart => { return start_game(transport, player_name); }
+                        GameMessage::GameStart { opponent_name } => { return start_game(transport, player_name, opponent_name); }
                         GameMessage::NameTaken => { name_taken = true; }
                         _ => {}
                     }
@@ -205,7 +205,7 @@ impl WasmApp {
                         GameMessage::NameTaken => {
                             sub = InGameSub::NameTaken;
                         }
-                        GameMessage::GameStart => {
+                        GameMessage::GameStart { .. } => {
                             session.peer_disconnected = false;
                             session.state.tick(Some(PlayerInput::StartGame), 0);
                         }
@@ -330,6 +330,8 @@ impl WasmApp {
                             view.opponent_board_accuracy,
                         );
                         view.peer_disconnected = session.peer_disconnected;
+                        view.opponent_name = session.opponent_name.clone();
+                        view.player_name = session.player_name.clone();
                         let mut ctx = self.renderer.backend();
                         draw_playing(&mut ctx, &view);
                         draw_quit_confirm(&mut ctx);
@@ -346,6 +348,8 @@ impl WasmApp {
                                     view.opponent_board_accuracy,
                                 );
                                 view.peer_disconnected = session.peer_disconnected;
+                                view.opponent_name = session.opponent_name.clone();
+                                view.player_name = session.player_name.clone();
                                 let mut ctx = self.renderer.backend();
                                 if in_baz {
                                     if let Some(ref bv) = view.bazaar_view {
@@ -383,9 +387,10 @@ impl WasmApp {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-fn start_game(transport: WsTransport, player_name: String) -> Phase {
+fn start_game(transport: WsTransport, player_name: String, opponent_name: String) -> Phase {
     let seed = (js_sys::Math::random() * u64::MAX as f64) as u64;
     let mut session = NetworkSession::new(seed, Some(player_name));
+    session.opponent_name = Some(opponent_name);
     session.state.mode = GameMode::VsNetwork;
     session.state.tick(Some(PlayerInput::StartGame), 0);
     Phase::InGame { session, transport, sub: InGameSub::Active }

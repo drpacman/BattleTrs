@@ -111,6 +111,8 @@ pub struct PlayingView {
     pub bazaar_view: Option<BazaarStateView>,
     /// Set by client game_loop when server sends PeerDisconnected; triggers overlay.
     pub peer_disconnected: bool,
+    pub opponent_name: Option<String>,
+    pub player_name: Option<String>,
 }
 
 // ─── GameState ────────────────────────────────────────────────────────────────
@@ -671,6 +673,8 @@ impl GameState {
             opponent_board_accuracy: accuracy,
             bazaar_view,
             peer_disconnected: false,
+            opponent_name: None,
+            player_name: None,
         }
     }
 }

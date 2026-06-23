@@ -14,7 +14,7 @@ pub enum GameMessage {
     /// Server → Client: name accepted.
     Welcome { assigned_name: String },
     /// Server → Both: both players connected; start the game.
-    GameStart,
+    GameStart { opponent_name: String },
     /// Server → Both: server-arbitrated bazaar trigger (Q2=B).
     BazaarOpen,
     /// Server → Remaining: peer dropped; 15-second reconnect window active.
