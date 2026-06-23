@@ -27,6 +27,9 @@ pub enum GameMessage {
     NameTaken,
 
     // ── Game flow ─────────────────────────────────────────────────────────────
+    /// Client → Server: player intentionally quit mid-game.
+    /// Server forwards to the peer then ends the session cleanly.
+    PlayerQuit,
     /// Signals Ernie to reset its game state for a new match.
     NewGame,
 

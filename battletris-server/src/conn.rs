@@ -13,6 +13,9 @@ pub const MAX_FRAME_BYTES: usize = 65_536;
 pub trait GameConn: Send + 'static {
     async fn read_frame(&mut self) -> io::Result<GameMessage>;
     async fn write_frame(&mut self, msg: &GameMessage) -> io::Result<()>;
+    /// Send a graceful close signal so the peer receives all prior frames
+    /// before the connection tears down. Must be called after the last write.
+    async fn close(&mut self);
 }
 
 // ─── TCP adapter ─────────────────────────────────────────────────────────────
@@ -60,6 +63,10 @@ impl GameConn for TcpConn {
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
         self.stream.write_all(&bytes).await
     }
+
+    async fn close(&mut self) {
+        let _ = self.stream.shutdown().await;
+    }
 }
 
 // ─── WebSocket adapter ───────────────────────────────────────────────────────
@@ -104,6 +111,13 @@ impl GameConn for WsConn {
             .send(Message::Binary(bytes))
             .await
             .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e.to_string()))
+    }
+
+    async fn close(&mut self) {
+        // A WebSocket close frame guarantees the browser delivers all prior
+        // binary frames via onmessage before firing onclose. Without this,
+        // dropping WsConn triggers a TCP RST that can discard in-flight data.
+        let _ = self.ws.send(Message::Close(None)).await;
     }
 }
 

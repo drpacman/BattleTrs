@@ -9,7 +9,7 @@ use battletris_renderer::playing::{draw_playing, draw_quit_confirm};
 use crate::input::InputHandler;
 use crate::renderer::CanvasRenderer;
 use crate::renderer::screens::{
-    draw_connecting, draw_connection_screen, draw_disconnected, draw_name_taken, draw_waiting,
+    draw_connecting, draw_connection_screen, draw_name_taken, draw_waiting,
 };
 use crate::transport::WsTransport;
 
@@ -17,9 +17,7 @@ use crate::transport::WsTransport;
 
 enum Phase {
     Lobby {
-        addr_buf: String,
         name_buf: String,
-        active_field: usize,
         error: Option<String>,
     },
     Connecting {
@@ -43,7 +41,6 @@ enum InGameSub {
     Active,
     QuitConfirm,
     NameTaken,
-    Disconnected,
 }
 
 // ─── App ──────────────────────────────────────────────────────────────────────
@@ -66,9 +63,7 @@ impl WasmApp {
             renderer,
             input,
             phase: Some(Phase::Lobby {
-                addr_buf: ws_url_from_location(),
                 name_buf: String::new(),
-                active_field: 1, // focus the name field by default
                 error: None,
             }),
             last_ts: 0.0,
@@ -103,24 +98,18 @@ impl WasmApp {
     ) -> Phase {
         match phase {
             // ── Lobby ─────────────────────────────────────────────────────────
-            Phase::Lobby { mut addr_buf, mut name_buf, mut active_field, mut error } => {
+            Phase::Lobby { mut name_buf, mut error } => {
                 for key in text_keys {
                     match key.as_str() {
-                        "Tab" => {
-                            active_field = 1 - active_field;
-                        }
-                        "Backspace" => {
-                            if active_field == 0 { addr_buf.pop(); } else { name_buf.pop(); }
-                            error = None;
-                        }
+                        "Backspace" => { name_buf.pop(); error = None; }
                         "Enter" => {
                             let name = name_buf.trim().to_string();
-                            let addr = addr_buf.trim().to_string();
                             if name.is_empty() {
                                 error = Some("NAME CANNOT BE EMPTY".into());
                             } else if name.len() > 16 {
                                 error = Some("NAME TOO LONG (MAX 16 CHARS)".into());
                             } else {
+                                let addr = ws_url_from_location();
                                 match WsTransport::connect(&addr, &name) {
                                     Ok(transport) => {
                                         return Phase::Connecting {
@@ -130,32 +119,44 @@ impl WasmApp {
                                         };
                                     }
                                     Err(_) => {
-                                        error = Some("INVALID SERVER ADDRESS".into());
+                                        error = Some("CONNECTION FAILED".into());
                                     }
                                 }
                             }
                         }
                         k if k.len() == 1 => {
-                            let target = if active_field == 0 { &mut addr_buf } else { &mut name_buf };
-                            let max_len = if active_field == 0 { 64 } else { 16 };
-                            if target.len() < max_len {
-                                target.push_str(k);
-                            }
+                            if name_buf.len() < 16 { name_buf.push_str(k); }
                             error = None;
                         }
                         _ => {}
                     }
                 }
-                Phase::Lobby { addr_buf, name_buf, active_field, error }
+                Phase::Lobby { name_buf, error }
             }
 
             // ── Connecting ────────────────────────────────────────────────────
             Phase::Connecting { transport, player_name, addr_display } => {
+                // Drain messages before inspecting connection state. On a fast
+                // server, Hello → GameStart (or NameTaken + close) can all arrive
+                // between two rAF frames, so we must process the queue first or
+                // the disconnect check fires before we see the real outcome.
+                for msg in transport.drain_incoming() {
+                    match msg {
+                        GameMessage::NameTaken => {
+                            return Phase::Lobby {
+                                name_buf: player_name,
+                                error: Some("NAME ALREADY IN USE".into()),
+                            };
+                        }
+                        GameMessage::GameStart => {
+                            return start_game(transport, player_name);
+                        }
+                        _ => {}
+                    }
+                }
                 if transport.is_disconnected() {
                     Phase::Lobby {
-                        addr_buf: addr_display,
                         name_buf: player_name,
-                        active_field: 0,
                         error: Some("CONNECTION FAILED".into()),
                     }
                 } else if transport.is_connected() {
@@ -167,28 +168,35 @@ impl WasmApp {
 
             // ── WaitingForOpponent ────────────────────────────────────────────
             Phase::WaitingForOpponent { transport, player_name } => {
+                let mut name_taken = false;
                 for msg in transport.drain_incoming() {
-                    if matches!(msg, GameMessage::GameStart) {
-                        let seed = (js_sys::Math::random() * u64::MAX as f64) as u64;
-                        let mut session = NetworkSession::new(seed, Some(player_name.clone()));
-                        session.state.mode = GameMode::VsNetwork;
-                        session.state.tick(Some(PlayerInput::StartGame), 0);
-                        return Phase::InGame {
-                            session,
-                            transport,
-                            sub: InGameSub::Active,
-                        };
+                    match msg {
+                        GameMessage::GameStart => { return start_game(transport, player_name); }
+                        GameMessage::NameTaken => { name_taken = true; }
+                        _ => {}
                     }
+                }
+                if name_taken {
+                    return Phase::Lobby {
+                        name_buf: player_name,
+                        error: Some("NAME ALREADY IN USE".into()),
+                    };
+                }
+                if transport.is_disconnected() {
+                    return Phase::Lobby {
+                        name_buf: player_name,
+                        error: Some("CONNECTION FAILED".into()),
+                    };
                 }
                 Phase::WaitingForOpponent { transport, player_name }
             }
 
             // ── InGame ────────────────────────────────────────────────────────
             Phase::InGame { mut session, transport, mut sub } => {
-                if transport.is_disconnected() && sub == InGameSub::Active {
-                    sub = InGameSub::Disconnected;
-                }
-
+                // Drain messages before checking disconnect state: PlayerQuit (and
+                // other intentional-close messages) arrive in the same rAF frame as
+                // the WebSocket close event, so we must inspect the queue first or
+                // the disconnect check fires and obscures the real reason.
                 for msg in transport.drain_incoming() {
                     match msg {
                         GameMessage::Welcome { assigned_name } => {
@@ -200,6 +208,17 @@ impl WasmApp {
                         GameMessage::GameStart => {
                             session.peer_disconnected = false;
                             session.state.tick(Some(PlayerInput::StartGame), 0);
+                        }
+                        GameMessage::PlayerQuit => {
+                            let name = session.player_name.clone().unwrap_or_default();
+                            return Phase::Lobby {
+                                name_buf: name,
+                                error: Some("OPPONENT QUIT".into()),
+                            };
+                        }
+                        GameMessage::PeerDisconnected => {
+                            let name = session.player_name.clone().unwrap_or_default();
+                            return Phase::Lobby { name_buf: name, error: None };
                         }
                         GameMessage::GameVoid => {
                             session.state.phase = GamePhase::Title;
@@ -213,8 +232,16 @@ impl WasmApp {
                     }
                 }
 
-                // NameTaken / Disconnected: no further key processing or ticking.
-                if matches!(sub, InGameSub::NameTaken | InGameSub::Disconnected) {
+                if transport.is_disconnected() {
+                    let name = session.player_name.clone().unwrap_or_default();
+                    return Phase::Lobby {
+                        name_buf: name,
+                        error: Some("CONNECTION LOST".into()),
+                    };
+                }
+
+                // NameTaken: no key processing or ticking.
+                if sub == InGameSub::NameTaken {
                     return Phase::InGame { session, transport, sub };
                 }
 
@@ -224,7 +251,17 @@ impl WasmApp {
                 for key in code_keys {
                     match sub {
                         InGameSub::QuitConfirm => match key.as_str() {
-                            "KeyY" => { let _ = web_sys::window().unwrap().location().reload(); }
+                            "KeyY" => {
+                                transport.send(&GameMessage::PlayerQuit);
+                                // Explicit close flushes the send buffer before
+                                // the closing handshake, ensuring PlayerQuit
+                                // reaches the server before the socket drops.
+                                transport.close();
+                                return Phase::Lobby {
+                                    name_buf: session.player_name.clone().unwrap_or_default(),
+                                    error: None,
+                                };
+                            }
                             "KeyN" | "Escape" => { sub = InGameSub::Active; }
                             _ => {}
                         },
@@ -242,7 +279,7 @@ impl WasmApp {
                             }
                             _ => {}
                         },
-                        InGameSub::NameTaken | InGameSub::Disconnected => unreachable!(),
+                        InGameSub::NameTaken => unreachable!(),
                     }
                 }
 
@@ -265,16 +302,9 @@ impl WasmApp {
         let cursor_visible = (ts as u64 / 500) % 2 == 0;
 
         match self.phase.as_ref().unwrap() {
-            Phase::Lobby { addr_buf, name_buf, active_field, error } => {
+            Phase::Lobby { name_buf, error } => {
                 let mut ctx = self.renderer.backend();
-                draw_connection_screen(
-                    &mut ctx,
-                    addr_buf,
-                    name_buf,
-                    *active_field,
-                    cursor_visible,
-                    error.as_deref(),
-                );
+                draw_connection_screen(&mut ctx, name_buf, cursor_visible, error.as_deref());
             }
 
             Phase::Connecting { addr_display, .. } => {
@@ -292,10 +322,6 @@ impl WasmApp {
                     InGameSub::NameTaken => {
                         let mut ctx = self.renderer.backend();
                         draw_name_taken(&mut ctx);
-                    }
-                    InGameSub::Disconnected => {
-                        let mut ctx = self.renderer.backend();
-                        draw_disconnected(&mut ctx);
                     }
                     InGameSub::QuitConfirm => {
                         let mut view = session.state.to_playing_view();
@@ -355,6 +381,16 @@ impl WasmApp {
     }
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+fn start_game(transport: WsTransport, player_name: String) -> Phase {
+    let seed = (js_sys::Math::random() * u64::MAX as f64) as u64;
+    let mut session = NetworkSession::new(seed, Some(player_name));
+    session.state.mode = GameMode::VsNetwork;
+    session.state.tick(Some(PlayerInput::StartGame), 0);
+    Phase::InGame { session, transport, sub: InGameSub::Active }
+}
+
 // ─── Input mapping ────────────────────────────────────────────────────────────
 
 fn bazaar_key(code: &str) -> Option<PlayerInput> {
@@ -396,18 +432,10 @@ fn playing_key(code: &str) -> Option<PlayerInput> {
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 fn ws_url_from_location() -> String {
-    let window = web_sys::window().unwrap();
-    let location = window.location();
-
-    if let Ok(search) = location.search() {
-        for part in search.split('&') {
-            let part = part.trim_start_matches('?');
-            if part.starts_with("server=") {
-                return part["server=".len()..].to_string();
-            }
-        }
-    }
-
-    let origin = location.origin().unwrap_or_default();
-    origin.replace("https://", "wss://").replace("http://", "ws://") + "/game"
+    let hostname = web_sys::window()
+        .unwrap()
+        .location()
+        .hostname()
+        .unwrap_or_default();
+    format!("ws://{hostname}/game")
 }

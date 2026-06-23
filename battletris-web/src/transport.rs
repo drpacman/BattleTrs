@@ -99,6 +99,13 @@ impl WsTransport {
         }
     }
 
+    /// Initiates a clean WebSocket closing handshake.
+    /// The browser flushes any buffered send data before sending the close frame,
+    /// so this must be called after the last `send()` to guarantee delivery.
+    pub fn close(&self) {
+        let _ = self.ws.close();
+    }
+
     pub fn is_connected(&self) -> bool {
         self.connected.get()
     }

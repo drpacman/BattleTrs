@@ -55,9 +55,13 @@ pub fn run_game_loop(
         // ── Process peer messages ─────────────────────────────────────────
         if let Some(ref ch) = peer {
             while let Ok(msg) = ch.from_peer.try_recv() {
-                let replies = session.process_message(msg);
-                for r in replies {
-                    let _ = ch.to_peer.try_send(r);
+                if matches!(msg, GameMessage::PlayerQuit) {
+                    session.state.phase = GamePhase::Title;
+                } else {
+                    let replies = session.process_message(msg);
+                    for r in replies {
+                        let _ = ch.to_peer.try_send(r);
+                    }
                 }
             }
         }

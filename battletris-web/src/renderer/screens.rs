@@ -5,13 +5,10 @@ use battletris_renderer::{Color, DrawContext};
 use super::CanvasBackend;
 
 const PANEL_W: f64 = 500.0;
-const PANEL_H: f64 = 280.0;
 
 pub fn draw_connection_screen(
     ctx: &mut CanvasBackend,
-    addr_buf: &str,
     name_buf: &str,
-    active_field: usize,
     cursor_visible: bool,
     error: Option<&str>,
 ) {
@@ -22,23 +19,21 @@ pub fn draw_connection_screen(
     let title = "NETWORK GAME";
     draw_text(ctx, title, cx - text_w(title, 4.0) / 2.0, 140.0, Color::rgb(255, 220, 0), 4.0);
 
+    let panel_h = 140.0;
     let px = cx - PANEL_W / 2.0;
-    let py = 230.0;
-    ctx.fill_rect(px, py, PANEL_W, PANEL_H, Color::rgb(25, 25, 50));
-    ctx.stroke_rect(px, py, PANEL_W, PANEL_H, Color::rgb(80, 80, 160));
+    let py = 270.0;
+    ctx.fill_rect(px, py, PANEL_W, panel_h, Color::rgb(25, 25, 50));
+    ctx.stroke_rect(px, py, PANEL_W, panel_h, Color::rgb(80, 80, 160));
 
-    draw_text(ctx, "SERVER ADDRESS:", px + 16.0, py + 20.0, Color::rgb(160, 160, 160), 2.0);
-    draw_input_field(ctx, px + 16.0, py + 42.0, PANEL_W - 32.0, addr_buf, active_field == 0, cursor_visible);
+    draw_text(ctx, "YOUR NAME:", px + 16.0, py + 20.0, Color::rgb(160, 160, 160), 2.0);
+    draw_input_field(ctx, px + 16.0, py + 42.0, PANEL_W - 32.0, name_buf, true, cursor_visible);
 
-    draw_text(ctx, "YOUR NAME:", px + 16.0, py + 120.0, Color::rgb(160, 160, 160), 2.0);
-    draw_input_field(ctx, px + 16.0, py + 142.0, PANEL_W - 32.0, name_buf, active_field == 1, cursor_visible);
-
-    let hint = "TAB - switch field    ENTER - connect";
-    draw_text(ctx, hint, cx - text_w(hint, 1.0) / 2.0, py + PANEL_H + 14.0,
+    let hint = "ENTER - connect";
+    draw_text(ctx, hint, cx - text_w(hint, 1.0) / 2.0, py + panel_h + 14.0,
         Color::rgb(100, 100, 100), 1.0);
 
     if let Some(err) = error {
-        draw_text(ctx, err, cx - text_w(err, 2.0) / 2.0, py + PANEL_H + 34.0,
+        draw_text(ctx, err, cx - text_w(err, 2.0) / 2.0, py + panel_h + 34.0,
             Color::rgb(220, 60, 60), 2.0);
     }
 }
@@ -106,14 +101,4 @@ pub fn draw_name_taken(ctx: &mut CanvasBackend) {
     draw_text(ctx, sub, cx - text_w(sub, 2.0) / 2.0, cy + 20.0, Color::rgb(160, 160, 160), 2.0);
 }
 
-pub fn draw_disconnected(ctx: &mut CanvasBackend) {
-    let cx = WINDOW_W / 2.0;
-    let cy = WINDOW_H / 2.0;
 
-    ctx.fill_rect(0.0, 0.0, WINDOW_W, WINDOW_H, Color::rgb(10, 10, 30));
-
-    let msg = "DISCONNECTED";
-    draw_text(ctx, msg, cx - text_w(msg, 3.0) / 2.0, cy - 20.0, Color::rgb(220, 50, 50), 3.0);
-    let sub = "RELOAD TO RECONNECT";
-    draw_text(ctx, sub, cx - text_w(sub, 2.0) / 2.0, cy + 20.0, Color::rgb(160, 160, 160), 2.0);
-}

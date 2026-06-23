@@ -92,6 +92,16 @@ async fn handle_message(
             let _ = peer.write_frame(&msg).await;
         }
 
+        GameMessage::PlayerQuit => {
+            eprintln!("[SERVER] {sender_name} quit — notifying {peer_name}");
+            let _ = peer.write_frame(&GameMessage::PlayerQuit).await;
+            // Close with a WebSocket close frame so the browser delivers the
+            // PlayerQuit binary frame via onmessage before firing onclose.
+            // A bare drop would send a TCP RST and could discard the frame.
+            peer.close().await;
+            return false;
+        }
+
         GameMessage::GameOver { .. } => {
             eprintln!("[SERVER] {sender_name} lost — {peer_name} wins");
             let (winner_elo, loser_elo) = {

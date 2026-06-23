@@ -36,7 +36,7 @@ enum Command {
         port: u16,
 
         /// HTTP + WebSocket port for browser clients.
-        #[arg(long, default_value_t = 7002)]
+        #[arg(long, default_value_t = 80)]
         web_port: u16,
 
         /// Path to compiled battletris-web dist/ directory.
