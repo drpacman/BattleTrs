@@ -16,72 +16,143 @@ The first player whose board tops out loses.
 
 ---
 
+## Clients
+
+There are two ways to play:
+
+| Client | Platform | Requires |
+|---|---|---|
+| **Native** (`battletris-client`) | macOS, Windows, Linux | SDL2 |
+| **Browser** (`battletris-web`) | Any modern browser | A running server |
+
+Both clients can connect to the same server and play against each other.
+
+---
+
 ## Requirements
 
-- **Rust** (stable, 2021 edition) — [rustup.rs](https://rustup.rs)
-- **SDL2** — used for rendering and input
+### Native client
 
-### macOS (Homebrew)
+- **Rust** (stable, 2021 edition) — [rustup.rs](https://rustup.rs)
+- **SDL2**
+
+#### macOS (Homebrew)
 
 ```sh
 brew install sdl2
 ```
 
-The `.cargo/config.toml` in this repo already points the linker at `/opt/homebrew/lib` for `aarch64-apple-darwin`.
+The `.cargo/config.toml` already points the linker at `/opt/homebrew/lib` for `aarch64-apple-darwin`.
 
-### Windows (ARM64, vcpkg)
+#### Windows (ARM64, vcpkg)
 
 ```powershell
 vcpkg install sdl2:arm64-windows
 ```
 
-The `.cargo/config.toml` already points the linker at `C:/vcpkg/installed/arm64-windows/lib` for `aarch64-pc-windows-msvc`. Copy `SDL2.dll` from `C:/vcpkg/installed/arm64-windows/bin/` next to the built executable when distributing.
+The `.cargo/config.toml` already points at `C:/vcpkg/installed/arm64-windows/lib` for `aarch64-pc-windows-msvc`. Copy `SDL2.dll` from `C:/vcpkg/installed/arm64-windows/bin/` next to the built executable when distributing.
+
+### Browser client and server
+
+- **Rust** (stable, 2021 edition)
+- **[trunk](https://trunkrs.dev/)** — WASM bundler
+
+```sh
+cargo install trunk
+rustup target add wasm32-unknown-unknown
+```
 
 ---
 
 ## Building
 
+### Native client
+
 ```sh
-cargo build --release
+cargo build --release -p battletris-client
 ```
 
-The client binary is `target/release/battletris-client`.
+The binary is `target/release/battletris-client`.
+
+### Browser client and server
+
+```sh
+cd battletris-web && trunk build && cd ..
+cargo build --release -p battletris-server
+```
+
+Or use the provided script which builds both and starts the server in one step:
+
+```sh
+./run_server.sh
+```
 
 ---
 
 ## Running
 
-### Solo practice
+### Solo practice (native)
 
 ```sh
 cargo run --release --bin battletris-client
 ```
 
-Press **S** on the title screen to launch solo practice mode. You start with $10,000 in funds so you can explore all the weapons freely. You can launch the Bazaar at any time by pressing **B**.
+Press **S** on the title screen to launch solo practice mode. You start with $10,000 in funds so you can explore all the weapons freely. Press **B** at any time to open the bazaar.
 
-### Vs computer (Ernie)
+### Vs computer — Ernie (native)
 
 Press **Enter** on the title screen to play against Ernie, the built-in AI opponent.
 
 ### Network play
 
-Start the server on a host both players can reach:
+The server handles both native (TCP) and browser (WebSocket) clients simultaneously — a native client and a browser client can play against each other.
+
+#### Start the server
+
+The quickest path for the browser client is the helper script, which rebuilds the WASM bundle and serves it alongside the WebSocket relay:
 
 ```sh
-cargo run --release --bin battletris-server
+./run_server.sh
 ```
 
-Each player then runs the client and presses **N** to connect:
+This is equivalent to:
 
 ```sh
-cargo run --release --bin battletris-client
+cd battletris-web && trunk build && cd ..
+cargo run --release -p battletris-server -- serve \
+    --web-dir battletris-web/dist
 ```
 
-You will be prompted for the server address and your player name. ELO rankings are tracked in `players.json` on the server host.
+Default ports:
+
+| Protocol | Port | Used by |
+|---|---|---|
+| HTTP + WebSocket | 80 | Browser clients |
+| TCP | 7001 | Native clients |
+
+Both can be overridden with `--web-port` and `--port`.
+
+#### Browser client
+
+Open `http://<server-address>/` in a browser. Enter your name and press **Enter** to connect. The server address is derived automatically from the page URL — no configuration needed.
+
+#### Native client
+
+Press **N** on the title screen, then enter the server address (e.g. `192.168.1.10:7001`) and your name.
+
+#### ELO rankings
+
+Player results are stored in `players.json` on the server host. To view the leaderboard:
+
+```sh
+cargo run --release -p battletris-server -- players
+```
 
 ---
 
 ## Controls
+
+### In game
 
 | Key | Action |
 |---|---|
@@ -91,11 +162,17 @@ You will be prompted for the server address and your player name. ELO rankings a
 | Down arrow | Soft drop |
 | Space | Hard drop |
 | P | Pause |
-| Esc | Quit to title |
 | 1 – 9, 0 | Launch weapon from arsenal slot 1–10 |
-| Up/Down in bazaar | Navigate weapon list |
-| Enter (numpad) | Buy selected weapon |
+| Esc | Quit (asks for confirmation in network play) |
 | B | Open bazaar immediately (solo practice only) |
+
+### In bazaar
+
+| Key | Action |
+|---|---|
+| Up / Down arrow | Navigate weapon list |
+| Enter | Buy selected weapon |
+| Esc | Return to game |
 
 ---
 
@@ -139,9 +216,11 @@ There are 34 weapons in total.
 
 The 1994 original ran on Solaris/SPARC using X11 and Motif. This port:
 
-- Uses **SDL2** for cross-platform rendering (macOS, Windows, Linux)
-- Implements a self-contained **TCP server** for network play — no separate `btserverd` daemon required
+- Uses **SDL2** for cross-platform native rendering (macOS, Windows, Linux)
+- Adds a **browser client** compiled to WebAssembly — no installation required for players
+- Implements a self-contained **relay server** for network play — no separate `btserverd` daemon required; the same server binary handles both TCP and WebSocket connections
 - Adds **solo practice mode** (S key) for exploring weapons without an opponent
+- Adds **ELO rankings** tracked in a server-side `players.json`
 - Preserves all original gameplay mechanics, weapon set, scoring and bazaar timing faithfully
 
 ---
