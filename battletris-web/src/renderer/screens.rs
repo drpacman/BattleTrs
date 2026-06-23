@@ -1,102 +1,119 @@
-use web_sys::CanvasRenderingContext2d;
+use battletris_renderer::font::{draw_text, text_w};
+use battletris_renderer::layout::{WINDOW_H, WINDOW_W};
+use battletris_renderer::{Color, DrawContext};
 
-use super::{draw_text, text_w, WINDOW_H, WINDOW_W};
+use super::CanvasBackend;
 
-pub fn draw_connecting(ctx: &CanvasRenderingContext2d) {
-    let cx = WINDOW_W / 2.0;
-    let cy = WINDOW_H / 2.0;
-    let msg = "CONNECTING...";
-    draw_text(ctx, msg, cx - text_w(msg, 3.0) / 2.0, cy - 10.0, "#646464", 3.0);
-}
+const PANEL_W: f64 = 500.0;
+const PANEL_H: f64 = 280.0;
 
-pub fn draw_waiting(ctx: &CanvasRenderingContext2d) {
-    let cx = WINDOW_W / 2.0;
-    let cy = WINDOW_H / 2.0;
-    let msg = "WAITING FOR OPPONENT...";
-    draw_text(ctx, msg, cx - text_w(msg, 2.0) / 2.0, cy - 10.0, "#a0a0a0", 2.0);
-}
-
-pub fn draw_name_taken(ctx: &CanvasRenderingContext2d) {
-    let cx = WINDOW_W / 2.0;
-    let cy = WINDOW_H / 2.0;
-    let msg = "NAME ALREADY IN USE";
-    draw_text(ctx, msg, cx - text_w(msg, 3.0) / 2.0, cy - 20.0, "#dc3232", 3.0);
-    let sub = "RELOAD TO TRY AGAIN";
-    draw_text(ctx, sub, cx - text_w(sub, 2.0) / 2.0, cy + 20.0, "#a0a0a0", 2.0);
-}
-
-pub fn draw_disconnected(ctx: &CanvasRenderingContext2d) {
-    let cx = WINDOW_W / 2.0;
-    let cy = WINDOW_H / 2.0;
-    let msg = "DISCONNECTED";
-    draw_text(ctx, msg, cx - text_w(msg, 3.0) / 2.0, cy - 20.0, "#dc3232", 3.0);
-    let sub = "RELOAD TO RECONNECT";
-    draw_text(ctx, sub, cx - text_w(sub, 2.0) / 2.0, cy + 20.0, "#a0a0a0", 2.0);
-}
-
-pub fn draw_game_over(
-    ctx: &CanvasRenderingContext2d,
-    won: bool,
-    score: u32,
-    lines: u32,
-    winner_name: Option<&str>,
-    elo_delta: Option<i32>,
+pub fn draw_connection_screen(
+    ctx: &mut CanvasBackend,
+    addr_buf: &str,
+    name_buf: &str,
+    active_field: usize,
+    cursor_visible: bool,
+    error: Option<&str>,
 ) {
     let cx = WINDOW_W / 2.0;
+
+    ctx.fill_rect(0.0, 0.0, WINDOW_W, WINDOW_H, Color::rgb(10, 10, 30));
+
+    let title = "NETWORK GAME";
+    draw_text(ctx, title, cx - text_w(title, 4.0) / 2.0, 140.0, Color::rgb(255, 220, 0), 4.0);
+
+    let px = cx - PANEL_W / 2.0;
+    let py = 230.0;
+    ctx.fill_rect(px, py, PANEL_W, PANEL_H, Color::rgb(25, 25, 50));
+    ctx.stroke_rect(px, py, PANEL_W, PANEL_H, Color::rgb(80, 80, 160));
+
+    draw_text(ctx, "SERVER ADDRESS:", px + 16.0, py + 20.0, Color::rgb(160, 160, 160), 2.0);
+    draw_input_field(ctx, px + 16.0, py + 42.0, PANEL_W - 32.0, addr_buf, active_field == 0, cursor_visible);
+
+    draw_text(ctx, "YOUR NAME:", px + 16.0, py + 120.0, Color::rgb(160, 160, 160), 2.0);
+    draw_input_field(ctx, px + 16.0, py + 142.0, PANEL_W - 32.0, name_buf, active_field == 1, cursor_visible);
+
+    let hint = "TAB - switch field    ENTER - connect";
+    draw_text(ctx, hint, cx - text_w(hint, 1.0) / 2.0, py + PANEL_H + 14.0,
+        Color::rgb(100, 100, 100), 1.0);
+
+    if let Some(err) = error {
+        draw_text(ctx, err, cx - text_w(err, 2.0) / 2.0, py + PANEL_H + 34.0,
+            Color::rgb(220, 60, 60), 2.0);
+    }
+}
+
+fn draw_input_field(
+    ctx: &mut CanvasBackend,
+    x: f64, y: f64, w: f64,
+    text: &str,
+    active: bool,
+    cursor_visible: bool,
+) {
+    let h = 40.0;
+    let bg = if active { Color::rgb(35, 35, 70) } else { Color::rgb(20, 20, 40) };
+    ctx.fill_rect(x, y, w, h, bg);
+
+    let border = if active { Color::rgb(100, 100, 220) } else { Color::rgb(60, 60, 100) };
+    ctx.stroke_rect(x, y, w, h, border);
+
+    // Truncate from the left so the cursor end stays visible.
+    let display = if text.len() > 40 { &text[text.len() - 40..] } else { text };
+    draw_text(ctx, display, x + 6.0, y + 10.0, Color::rgb(220, 220, 220), 2.0);
+
+    if active && cursor_visible {
+        let cursor_x = x + 6.0 + text_w(display, 2.0);
+        ctx.fill_rect(cursor_x, y + 8.0, 2.0, 24.0, Color::rgb(200, 200, 200));
+    }
+}
+
+pub fn draw_connecting(ctx: &mut CanvasBackend, addr: &str) {
+    let cx = WINDOW_W / 2.0;
     let cy = WINDOW_H / 2.0;
 
-    ctx.set_fill_style_str("rgba(0, 0, 0, 0.78)");
-    ctx.fill_rect(0.0, 0.0, WINDOW_W, WINDOW_H);
+    ctx.fill_rect(0.0, 0.0, WINDOW_W, WINDOW_H, Color::rgb(10, 10, 30));
 
-    let panel_h = if winner_name.is_some() { 390.0 } else { 340.0 };
+    let t1 = "CONNECTING...";
+    draw_text(ctx, t1, cx - text_w(t1, 4.0) / 2.0, cy - 60.0, Color::rgb(255, 220, 0), 4.0);
+    draw_text(ctx, addr, cx - text_w(addr, 2.0) / 2.0, cy + 10.0, Color::rgb(160, 160, 160), 2.0);
+}
 
-    ctx.set_fill_style_str("#140a28");
-    ctx.fill_rect(cx - 220.0, cy - 195.0, 440.0, panel_h);
-    ctx.set_stroke_style_str("#5000a0");
-    ctx.set_line_width(1.0);
-    ctx.stroke_rect(cx - 220.0, cy - 195.0, 440.0, panel_h);
+pub fn draw_waiting(ctx: &mut CanvasBackend, player_name: &str) {
+    let cx = WINDOW_W / 2.0;
+    let cy = WINDOW_H / 2.0;
 
-    let (result_text, result_color) = if won {
-        ("YOU WIN!", "#32dc32")
-    } else {
-        ("GAME OVER", "#dc3232")
-    };
-    draw_text(
-        ctx, result_text,
-        cx - text_w(result_text, 4.0) / 2.0, cy - 170.0,
-        result_color, 4.0,
-    );
+    ctx.fill_rect(0.0, 0.0, WINDOW_W, WINDOW_H, Color::rgb(10, 10, 30));
 
-    let mut y = cy - 100.0;
-    if let Some(name) = winner_name {
-        let label = if won {
-            format!("You beat {name}!")
-        } else {
-            format!("{name} wins")
-        };
-        draw_text(ctx, &label, cx - text_w(&label, 2.0) / 2.0, y, "#c8c8c8", 2.0);
-        y += 26.0;
+    let t1 = "WAITING FOR OPPONENT";
+    draw_text(ctx, t1, cx - text_w(t1, 3.0) / 2.0, cy - 60.0, Color::rgb(255, 220, 0), 3.0);
+
+    if !player_name.is_empty() {
+        let name_str = format!("Playing as: {player_name}");
+        draw_text(ctx, &name_str, cx - text_w(&name_str, 2.0) / 2.0, cy,
+            Color::rgb(160, 160, 160), 2.0);
     }
+}
 
-    let score_str = format!("SCORE: {score}");
-    let lines_str = format!("LINES: {lines}");
-    draw_text(ctx, &score_str, cx - text_w(&score_str, 3.0) / 2.0, y, "#ffdc00", 3.0);
-    y += 30.0;
-    draw_text(ctx, &lines_str, cx - text_w(&lines_str, 3.0) / 2.0, y, "#c8c8c8", 3.0);
-    y += 40.0;
+pub fn draw_name_taken(ctx: &mut CanvasBackend) {
+    let cx = WINDOW_W / 2.0;
+    let cy = WINDOW_H / 2.0;
 
-    if let Some(delta) = elo_delta {
-        let (delta_str, delta_col) = if delta >= 0 {
-            (format!("ELO: +{delta}"), "#50dc50")
-        } else {
-            (format!("ELO: {delta}"), "#dc5050")
-        };
-        draw_text(ctx, &delta_str, cx - text_w(&delta_str, 3.0) / 2.0, y, delta_col, 3.0);
-        y += 40.0;
-    }
+    ctx.fill_rect(0.0, 0.0, WINDOW_W, WINDOW_H, Color::rgb(10, 10, 30));
 
-    let p1 = "ENTER - PLAY AGAIN";
-    let p2 = "ESC - QUIT";
-    draw_text(ctx, p1, cx - text_w(p1, 2.0) / 2.0, y, "#b4b4b4", 2.0);
-    draw_text(ctx, p2, cx - text_w(p2, 2.0) / 2.0, y + 25.0, "#b4b4b4", 2.0);
+    let msg = "NAME ALREADY IN USE";
+    draw_text(ctx, msg, cx - text_w(msg, 3.0) / 2.0, cy - 20.0, Color::rgb(220, 50, 50), 3.0);
+    let sub = "RELOAD TO TRY AGAIN";
+    draw_text(ctx, sub, cx - text_w(sub, 2.0) / 2.0, cy + 20.0, Color::rgb(160, 160, 160), 2.0);
+}
+
+pub fn draw_disconnected(ctx: &mut CanvasBackend) {
+    let cx = WINDOW_W / 2.0;
+    let cy = WINDOW_H / 2.0;
+
+    ctx.fill_rect(0.0, 0.0, WINDOW_W, WINDOW_H, Color::rgb(10, 10, 30));
+
+    let msg = "DISCONNECTED";
+    draw_text(ctx, msg, cx - text_w(msg, 3.0) / 2.0, cy - 20.0, Color::rgb(220, 50, 50), 3.0);
+    let sub = "RELOAD TO RECONNECT";
+    draw_text(ctx, sub, cx - text_w(sub, 2.0) / 2.0, cy + 20.0, Color::rgb(160, 160, 160), 2.0);
 }

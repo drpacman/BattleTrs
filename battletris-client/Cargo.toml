@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 battletris-engine = { path = "../battletris-engine" }
+battletris-renderer = { path = "../battletris-renderer" }
 sdl2 = { version = "0.36" }
 rand = { workspace = true }
 tokio = { workspace = true }

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "battletris-engine",
+    "battletris-renderer",
     "battletris-client",
     "battletris-server",
     "battletris-web",

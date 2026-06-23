@@ -1,126 +1,97 @@
-use sdl2::pixels::Color;
-use sdl2::rect::Rect;
+use battletris_renderer::{Color, DrawContext};
+use battletris_renderer::font::{draw_text, text_w};
+use battletris_renderer::layout::{WINDOW_H, WINDOW_W};
 
-use super::{draw_text, text_w, Renderer, WINDOW_H, WINDOW_W};
+use super::{Renderer, SdlBackend};
 
-const PANEL_W: u32 = 500;
-const PANEL_H: u32 = 260;
+const PANEL_W: f64 = 500.0;
+const PANEL_H: f64 = 260.0;
 
 pub fn draw_connection_screen(
     r: &mut Renderer,
     addr_buf: &str,
     name_buf: &str,
-    active_field: usize, // 0 = address, 1 = name
+    active_field: usize,
     cursor_visible: bool,
     error: Option<&str>,
 ) {
-    let cx = WINDOW_W as i32 / 2;
+    let mut ctx = r.backend();
+    let cx = WINDOW_W / 2.0;
 
-    // Background
-    r.canvas.set_draw_color(Color::RGB(10, 10, 30));
-    let _ = r.canvas.fill_rect(Rect::new(0, 0, WINDOW_W, WINDOW_H));
+    ctx.fill_rect(0.0, 0.0, WINDOW_W, WINDOW_H, Color::rgb(10, 10, 30));
 
-    // Title
     let title = "NETWORK GAME";
-    draw_text(&mut r.canvas, title, cx - text_w(title, 4) / 2, 140,
-        Color::RGB(255, 220, 0), 4);
+    draw_text(&mut ctx, title, cx - text_w(title, 4.0) / 2.0, 140.0, Color::rgb(255, 220, 0), 4.0);
 
-    // Panel
-    let px = cx - PANEL_W as i32 / 2;
-    let py = 230i32;
-    r.canvas.set_draw_color(Color::RGB(25, 25, 50));
-    let _ = r.canvas.fill_rect(Rect::new(px, py, PANEL_W, PANEL_H));
-    r.canvas.set_draw_color(Color::RGB(80, 80, 160));
-    let _ = r.canvas.draw_rect(Rect::new(px, py, PANEL_W, PANEL_H));
+    let px = cx - PANEL_W / 2.0;
+    let py = 230.0;
+    ctx.fill_rect(px, py, PANEL_W, PANEL_H, Color::rgb(25, 25, 50));
+    ctx.stroke_rect(px, py, PANEL_W, PANEL_H, Color::rgb(80, 80, 160));
 
-    // Server address field
     let addr_label = "SERVER ADDRESS:";
-    draw_text(&mut r.canvas, addr_label, px + 16, py + 20, Color::RGB(160, 160, 160), 2);
-    draw_input_field(r, px + 16, py + 42, PANEL_W - 32, addr_buf, active_field == 0, cursor_visible);
+    draw_text(&mut ctx, addr_label, px + 16.0, py + 20.0, Color::rgb(160, 160, 160), 2.0);
+    draw_input_field(&mut ctx, px + 16.0, py + 42.0, PANEL_W - 32.0, addr_buf, active_field == 0, cursor_visible);
 
-    // Player name field
     let name_label = "YOUR NAME:";
-    draw_text(&mut r.canvas, name_label, px + 16, py + 110, Color::RGB(160, 160, 160), 2);
-    draw_input_field(r, px + 16, py + 132, PANEL_W - 32, name_buf, active_field == 1, cursor_visible);
+    draw_text(&mut ctx, name_label, px + 16.0, py + 110.0, Color::rgb(160, 160, 160), 2.0);
+    draw_input_field(&mut ctx, px + 16.0, py + 132.0, PANEL_W - 32.0, name_buf, active_field == 1, cursor_visible);
 
-    // Instructions
     let hint1 = "TAB - switch field    ENTER - connect    ESC - back";
-    draw_text(&mut r.canvas, hint1, cx - text_w(hint1, 1) / 2, py + PANEL_H as i32 + 10,
-        Color::RGB(100, 100, 100), 1);
+    draw_text(&mut ctx, hint1, cx - text_w(hint1, 1.0) / 2.0, py + PANEL_H + 10.0,
+        Color::rgb(100, 100, 100), 1.0);
 
-    // Error message
     if let Some(err) = error {
-        let err_str = err;
-        draw_text(&mut r.canvas, err_str, cx - text_w(err_str, 2) / 2, py + PANEL_H as i32 + 30,
-            Color::RGB(220, 60, 60), 2);
+        draw_text(&mut ctx, err, cx - text_w(err, 2.0) / 2.0, py + PANEL_H + 30.0,
+            Color::rgb(220, 60, 60), 2.0);
     }
 }
 
-fn draw_input_field(
-    r: &mut Renderer,
-    x: i32, y: i32, w: u32,
-    text: &str,
-    active: bool,
-    cursor_visible: bool,
-) {
-    let h = 40u32;
-    // Field background
-    let bg = if active { Color::RGB(35, 35, 70) } else { Color::RGB(20, 20, 40) };
-    r.canvas.set_draw_color(bg);
-    let _ = r.canvas.fill_rect(Rect::new(x, y, w, h));
+fn draw_input_field(ctx: &mut SdlBackend, x: f64, y: f64, w: f64, text: &str, active: bool, cursor_visible: bool) {
+    let h = 40.0;
+    let bg = if active { Color::rgb(35, 35, 70) } else { Color::rgb(20, 20, 40) };
+    ctx.fill_rect(x, y, w, h, bg);
 
-    // Border
-    let border = if active { Color::RGB(100, 100, 220) } else { Color::RGB(60, 60, 100) };
-    r.canvas.set_draw_color(border);
-    let _ = r.canvas.draw_rect(Rect::new(x, y, w, h));
+    let border = if active { Color::rgb(100, 100, 220) } else { Color::rgb(60, 60, 100) };
+    ctx.stroke_rect(x, y, w, h, border);
 
-    // Text (truncated to fit)
     let display = if text.len() > 40 { &text[text.len() - 40..] } else { text };
-    draw_text(&mut r.canvas, display, x + 6, y + 10, Color::RGB(220, 220, 220), 2);
+    draw_text(ctx, display, x + 6.0, y + 10.0, Color::rgb(220, 220, 220), 2.0);
 
-    // Cursor
     if active && cursor_visible {
-        let cursor_x = x + 6 + text_w(display, 2);
-        r.canvas.set_draw_color(Color::RGB(200, 200, 200));
-        let _ = r.canvas.fill_rect(Rect::new(cursor_x, y + 8, 2, 24));
+        let cursor_x = x + 6.0 + text_w(display, 2.0);
+        ctx.fill_rect(cursor_x, y + 8.0, 2.0, 24.0, Color::rgb(200, 200, 200));
     }
 }
 
 pub fn draw_connecting_screen(r: &mut Renderer, addr: &str) {
-    let cx = WINDOW_W as i32 / 2;
-    let cy = WINDOW_H as i32 / 2;
+    let mut ctx = r.backend();
+    let cx = WINDOW_W / 2.0;
+    let cy = WINDOW_H / 2.0;
 
-    r.canvas.set_draw_color(Color::RGB(10, 10, 30));
-    let _ = r.canvas.fill_rect(Rect::new(0, 0, WINDOW_W, WINDOW_H));
+    ctx.fill_rect(0.0, 0.0, WINDOW_W, WINDOW_H, Color::rgb(10, 10, 30));
 
     let t1 = "CONNECTING...";
-    draw_text(&mut r.canvas, t1, cx - text_w(t1, 4) / 2, cy - 60,
-        Color::RGB(255, 220, 0), 4);
-
-    draw_text(&mut r.canvas, addr, cx - text_w(addr, 2) / 2, cy + 10,
-        Color::RGB(160, 160, 160), 2);
+    draw_text(&mut ctx, t1, cx - text_w(t1, 4.0) / 2.0, cy - 60.0, Color::rgb(255, 220, 0), 4.0);
+    draw_text(&mut ctx, addr, cx - text_w(addr, 2.0) / 2.0, cy + 10.0, Color::rgb(160, 160, 160), 2.0);
 
     let hint = "ESC - cancel";
-    draw_text(&mut r.canvas, hint, cx - text_w(hint, 2) / 2, cy + 60,
-        Color::RGB(80, 80, 80), 2);
+    draw_text(&mut ctx, hint, cx - text_w(hint, 2.0) / 2.0, cy + 60.0, Color::rgb(80, 80, 80), 2.0);
 }
 
 pub fn draw_waiting_screen(r: &mut Renderer, player_name: &str) {
-    let cx = WINDOW_W as i32 / 2;
-    let cy = WINDOW_H as i32 / 2;
+    let mut ctx = r.backend();
+    let cx = WINDOW_W / 2.0;
+    let cy = WINDOW_H / 2.0;
 
-    r.canvas.set_draw_color(Color::RGB(10, 10, 30));
-    let _ = r.canvas.fill_rect(Rect::new(0, 0, WINDOW_W, WINDOW_H));
+    ctx.fill_rect(0.0, 0.0, WINDOW_W, WINDOW_H, Color::rgb(10, 10, 30));
 
     let t1 = "WAITING FOR OPPONENT";
-    draw_text(&mut r.canvas, t1, cx - text_w(t1, 3) / 2, cy - 80,
-        Color::RGB(255, 220, 0), 3);
+    draw_text(&mut ctx, t1, cx - text_w(t1, 3.0) / 2.0, cy - 80.0, Color::rgb(255, 220, 0), 3.0);
 
     let name_str = format!("Playing as: {player_name}");
-    draw_text(&mut r.canvas, &name_str, cx - text_w(&name_str, 2) / 2, cy - 20,
-        Color::RGB(160, 160, 160), 2);
+    draw_text(&mut ctx, &name_str, cx - text_w(&name_str, 2.0) / 2.0, cy - 20.0,
+        Color::rgb(160, 160, 160), 2.0);
 
     let hint = "ESC - cancel";
-    draw_text(&mut r.canvas, hint, cx - text_w(hint, 2) / 2, cy + 60,
-        Color::RGB(80, 80, 80), 2);
+    draw_text(&mut ctx, hint, cx - text_w(hint, 2.0) / 2.0, cy + 60.0, Color::rgb(80, 80, 80), 2.0);
 }

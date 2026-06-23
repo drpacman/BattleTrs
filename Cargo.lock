@@ -138,6 +138,7 @@ name = "battletris-client"
 version = "0.1.0"
 dependencies = [
  "battletris-engine",
+ "battletris-renderer",
  "rand",
  "sdl2",
  "tokio",
@@ -151,6 +152,13 @@ dependencies = [
  "getrandom 0.2.17",
  "rand",
  "serde",
+]
+
+[[package]]
+name = "battletris-renderer"
+version = "0.1.0"
+dependencies = [
+ "battletris-engine",
 ]
 
 [[package]]
@@ -175,6 +183,7 @@ name = "battletris-web"
 version = "0.1.0"
 dependencies = [
  "battletris-engine",
+ "battletris-renderer",
  "bincode",
  "console_error_panic_hook",
  "js-sys",

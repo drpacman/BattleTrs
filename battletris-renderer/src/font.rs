@@ -1,12 +1,6 @@
-use sdl2::pixels::Color;
-use sdl2::rect::Rect;
-use sdl2::render::Canvas;
-use sdl2::video::Window;
+use crate::{Color, DrawContext};
 
-// 5×7 pixel bitmap font covering printable ASCII 32–96.
-// Index = char_code - 32.  Each glyph is 7 rows; each row byte uses the 5
-// low bits: bit 4 = leftmost column, bit 0 = rightmost column.
-const GLYPH_W: i32 = 5;
+const GLYPH_W: f64 = 5.0;
 
 #[rustfmt::skip]
 const FONT: &[[u8; 7]] = &[
@@ -77,45 +71,34 @@ const FONT: &[[u8; 7]] = &[
     [8,  4,  0,  0,  0,  0,  0 ], // 96 '`'
 ];
 
-/// Pixel width of one rendered character including inter-character gap.
-pub fn char_step(scale: u32) -> i32 {
-    (GLYPH_W + 1) * scale as i32
+pub fn char_step(scale: f64) -> f64 {
+    (GLYPH_W + 1.0) * scale
 }
 
-/// Total pixel width of a string at the given scale.
-pub fn text_w(text: &str, scale: u32) -> i32 {
-    text.chars().count() as i32 * char_step(scale)
+pub fn text_w(text: &str, scale: f64) -> f64 {
+    text.chars().count() as f64 * char_step(scale)
 }
 
-/// Draw a string using the embedded 5×7 bitmap font.
-/// `scale` is the number of SDL pixels per font pixel (1 = tiny, 2 = small label,
-/// 3 = medium value, 5 = large title).
-/// Lowercase letters are automatically mapped to uppercase.
-pub fn draw_text(
-    canvas: &mut Canvas<Window>,
-    text: &str,
-    x: i32,
-    y: i32,
-    color: Color,
-    scale: u32,
-) {
-    let s = scale as i32;
+pub fn draw_text<D: DrawContext>(ctx: &mut D, text: &str, x: f64, y: f64, color: Color, scale: f64) {
     let step = char_step(scale);
-    canvas.set_draw_color(color);
     for (ci, ch) in text.chars().enumerate() {
         let c = ch.to_ascii_uppercase() as usize;
         if c < 32 || c > 96 {
             continue;
         }
-        let glyph = FONT[c - 32];
-        let gx = x + ci as i32 * step;
+        let glyph = &FONT[c - 32];
+        let gx = x + ci as f64 * step;
         for (row, &bits) in glyph.iter().enumerate() {
-            for col in 0_i32..GLYPH_W {
-                let bit_pos = (GLYPH_W - 1 - col) as u32;
+            for col in 0..5_usize {
+                let bit_pos = 4 - col;
                 if bits & (1u8 << bit_pos) != 0 {
-                    let px = gx + col * s;
-                    let py = y + row as i32 * s;
-                    let _ = canvas.fill_rect(Rect::new(px, py, scale, scale));
+                    ctx.fill_rect(
+                        gx + col as f64 * scale,
+                        y + row as f64 * scale,
+                        scale,
+                        scale,
+                        color,
+                    );
                 }
             }
         }

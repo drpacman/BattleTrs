@@ -17,7 +17,7 @@
             image-rendering: pixelated;
         }
     </style>
-<link rel="modulepreload" href="/battletris-web-a05bd23150b0cc81.js" crossorigin="anonymous" integrity="sha384-YYwK5mfi9aaT/rir9guPDQIbynS3qtVr3uQ7ZNasXdkMyZK158t/n7HyJlTmrU0B"><link rel="preload" href="/battletris-web-a05bd23150b0cc81_bg.wasm" crossorigin="anonymous" integrity="sha384-VdW1ZLBMrq2YjcTeLE9sXFu1LHBrdtiaV2R2hWcHX8yfbNK+0L3/2752hGmBpI13" as="fetch" type="application/wasm"></head>
+<link rel="modulepreload" href="/battletris-web-c91b51d15e4d15e5.js" crossorigin="anonymous" integrity="sha384-j21kVS/ze82kZJBYuxkBk8hulUOhLXj1PG+5ZH7xZtMz/lo+JMmBJkM5vbbI5MTO"><link rel="preload" href="/battletris-web-c91b51d15e4d15e5_bg.wasm" crossorigin="anonymous" integrity="sha384-pBG9Ve1auNSG7DlgTEoMPuK2HAOkjI1QcUQpFGWfY6tQMj5hUH7+VOTj9VxyMJF6" as="fetch" type="application/wasm"></head>
 <body>
     <canvas id="game-canvas" width="820" height="860"></canvas>
     <script type="module">
@@ -26,8 +26,8 @@
     </script>
 
 <script type="module">
-import init, * as bindings from '/battletris-web-a05bd23150b0cc81.js';
-const wasm = await init({ module_or_path: '/battletris-web-a05bd23150b0cc81_bg.wasm' });
+import init, * as bindings from '/battletris-web-c91b51d15e4d15e5.js';
+const wasm = await init({ module_or_path: '/battletris-web-c91b51d15e4d15e5_bg.wasm' });
 
 
 window.wasmBindings = bindings;

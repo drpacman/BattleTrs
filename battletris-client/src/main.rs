@@ -16,13 +16,12 @@ use battletris_engine::protocol::GameMessage;
 
 use game_loop::{run_game_loop, PeerChannels, RenderEvent};
 use net::{ConnectError, NetChannels};
+use battletris_renderer::bazaar::draw_bazaar;
+use battletris_renderer::game_over::draw_game_over;
+use battletris_renderer::playing::{draw_playing, draw_quit_confirm};
 use renderer::{
-    bazaar::draw_bazaar,
-    game_over::draw_game_over,
     lobby::{draw_connection_screen, draw_connecting_screen, draw_waiting_screen},
-    playing::draw_playing,
     title::draw_title,
-    draw_quit_confirm,
     Renderer,
 };
 
@@ -240,7 +239,6 @@ fn start_ernie_game() -> AppState {
     let peer = Some(PeerChannels {
         from_peer: from_ernie_rx,
         to_peer: to_ernie_tx,
-        is_network: false,
     });
     thread::spawn(move || run_game_loop(input_rx, render_tx, peer, None));
 
@@ -339,7 +337,6 @@ fn transition(
                     let peer = Some(PeerChannels {
                         from_peer: net.from_server,
                         to_peer: net.to_server,
-                        is_network: true,
                     });
                     thread::spawn(move || {
                         run_game_loop(input_rx, render_tx, peer, Some(name_clone))
@@ -405,10 +402,13 @@ fn render_frame(
     if quit_confirming {
         if let Some(RenderEvent::Playing(ref view)) = last_playing {
             let baz = view.bazaar_view.clone();
-            draw_playing(renderer, view);
-            if let Some(ref b) = baz { draw_bazaar(renderer, b); }
+            let mut ctx = renderer.backend();
+            draw_playing(&mut ctx, view);
+            if let Some(ref b) = baz { draw_bazaar(&mut ctx, b); }
+            draw_quit_confirm(&mut ctx);
+        } else {
+            draw_quit_confirm(&mut renderer.backend());
         }
-        draw_quit_confirm(renderer);
         return;
     }
 
@@ -416,14 +416,7 @@ fn render_frame(
         AppState::TitleMenu => draw_title(renderer),
 
         AppState::ConnectionScreen { addr_buf, name_buf, active_field, error, cursor_blink, .. } => {
-            draw_connection_screen(
-                renderer,
-                addr_buf,
-                name_buf,
-                *active_field,
-                *cursor_blink,
-                error.as_deref(),
-            );
+            draw_connection_screen(renderer, addr_buf, name_buf, *active_field, *cursor_blink, error.as_deref());
         }
 
         AppState::Connecting { addr_display, .. } => {
@@ -438,15 +431,14 @@ fn render_frame(
             match last_playing {
                 Some(RenderEvent::Playing(ref view)) => {
                     let baz = view.bazaar_view.clone();
-                    draw_playing(renderer, view);
-                    if let Some(ref b) = baz { draw_bazaar(renderer, b); }
+                    let mut ctx = renderer.backend();
+                    draw_playing(&mut ctx, view);
+                    if let Some(ref b) = baz { draw_bazaar(&mut ctx, b); }
                 }
                 Some(RenderEvent::GameOver { won, score, lines, winner_name, elo_delta }) => {
                     draw_game_over(
-                        renderer,
-                        *won,
-                        *score,
-                        *lines,
+                        &mut renderer.backend(),
+                        *won, *score, *lines,
                         winner_name.as_deref(),
                         *elo_delta,
                     );
