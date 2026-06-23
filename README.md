@@ -233,7 +233,7 @@ Original BattleTris (1994): Bryan Cantrill, Charlie Hoecker, Mike Shapiro — Br
 
 ## Licence
 
-The original BattleTris source (in [`BattleTris/`](https://github.com/bcantrill/BattleTris)) is MIT licensed. Its copyright notice is reproduced in [`LICENSE-ORIGINAL`](LICENSE-ORIGINAL) in accordance with the licence terms:
+The original BattleTris source ([`BattleTris`](https://github.com/bcantrill/BattleTris)) is MIT licensed. Its copyright notice is reproduced in [`LICENSE-ORIGINAL`](LICENSE-ORIGINAL) in accordance with the licence terms:
 
 > MIT License  
 > Copyright (c) 1993-1997 Bryan Cantrill, Charlie Hoecker and Mike Shapiro
