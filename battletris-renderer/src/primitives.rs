@@ -71,62 +71,6 @@ pub fn draw_face<D: DrawContext>(ctx: &mut D, px: f64, py: f64, happy: bool) {
     }
 }
 
-pub fn draw_board<D: DrawContext>(
-    ctx: &mut D,
-    snapshot: &BoardSnapshot,
-    origin_x: f64,
-    origin_y: f64,
-    upbyside: bool,
-    blind_cells: &[(usize, usize)],
-    twilight: bool,
-) {
-    ctx.fill_rect(origin_x, origin_y, BOARD_PX_W, BOARD_PX_H, Color::PANEL);
-
-    for row in 0..BOARD_ROWS {
-        for col in 0..BOARD_COLS {
-            let cell = snapshot.cells[row][col];
-            let px = origin_x + col as f64 * CELL_PX;
-            let py = if upbyside {
-                origin_y + (BOARD_ROWS - 1 - row) as f64 * CELL_PX
-            } else {
-                origin_y + row as f64 * CELL_PX
-            };
-
-            if blind_cells.contains(&(row, col)) {
-                ctx.fill_rect(px + 13.0, py + 13.0, 2.0, 2.0, Color::GRID);
-                continue;
-            }
-
-            if twilight && !cell.is_empty() {
-                ctx.fill_rect(px, py, CELL_PX, CELL_PX, Color::rgb(40, 40, 40));
-                continue;
-            }
-
-            if cell == Cell::Bug {
-                ctx.fill_rect(px + 13.0, py + 13.0, 2.0, 2.0, Color::GRID);
-                continue;
-            }
-
-            if matches!(cell, Cell::Gimp(_)) {
-                ctx.draw_gimp_tile(px, py);
-                continue;
-            }
-
-            if let Some(color) = cell_color(cell) {
-                draw_cell(ctx, px, py, color);
-                match cell {
-                    Cell::Die(pips) => draw_die_pips(ctx, px, py, pips),
-                    Cell::Happy => draw_face(ctx, px, py, true),
-                    Cell::HappyMissed => draw_face(ctx, px, py, false),
-                    _ => {}
-                }
-            } else {
-                ctx.fill_rect(px + 13.0, py + 13.0, 2.0, 2.0, Color::GRID);
-            }
-        }
-    }
-}
-
 pub fn draw_active_piece<D: DrawContext>(
     ctx: &mut D,
     kind: PieceKind,
