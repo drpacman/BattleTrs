@@ -9,6 +9,7 @@ battletris-renderer = { path = "../battletris-renderer" }
 sdl2 = { version = "0.36" }
 rand = { workspace = true }
 tokio = { workspace = true }
+png = { workspace = true }
 
 [features]
 # Enable to link against system SDL2 instead of compiling from source

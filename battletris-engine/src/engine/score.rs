@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::engine::board::BOARD_ROWS;
+use crate::engine::game_state::LINES_UNTIL_BAZAAR;
 
 /// Live score state.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -43,8 +44,8 @@ impl Score {
         let prev_combined = self.combined_lines;
         self.lines += count;
         self.combined_lines += count;
-        let prev_bucket = prev_combined / 20;
-        let new_bucket = self.combined_lines / 20;
+        let prev_bucket = prev_combined / LINES_UNTIL_BAZAAR;
+        let new_bucket = self.combined_lines / LINES_UNTIL_BAZAAR;
         new_bucket > prev_bucket
     }
 
@@ -53,8 +54,8 @@ impl Score {
         let prev_combined = self.combined_lines;
         self.op_lines += count;
         self.combined_lines += count;
-        let prev_bucket = prev_combined / 20;
-        let new_bucket = self.combined_lines / 20;
+        let prev_bucket = prev_combined / LINES_UNTIL_BAZAAR;
+        let new_bucket = self.combined_lines / LINES_UNTIL_BAZAAR;
         new_bucket > prev_bucket
     }
 
@@ -67,7 +68,7 @@ impl Score {
 
     /// How many combined lines until the next bazaar.
     pub fn lines_until_bazaar(&self) -> u32 {
-        20 - (self.combined_lines % 20)
+        LINES_UNTIL_BAZAAR - (self.combined_lines % LINES_UNTIL_BAZAAR)
     }
 
     /// Build a lightweight view for the renderer.

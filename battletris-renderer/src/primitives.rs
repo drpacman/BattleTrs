@@ -28,7 +28,8 @@ pub fn cell_color(cell: Cell) -> Option<Color> {
         Cell::HappyMissed => Some(Color::rgb(180, 180, 180)),
         Cell::Struct_ => Some(Color::rgb(100, 100, 100)),
         Cell::Bug => None,
-        Cell::Twilight => Some(Color::rgb(40, 40, 40)),
+        Cell::Twilight => None,
+        Cell::Gimp(_) => Some(Color::rgb(120, 120, 120)),
     }
 }
 
@@ -106,6 +107,11 @@ pub fn draw_board<D: DrawContext>(
                 continue;
             }
 
+            if matches!(cell, Cell::Gimp(_)) {
+                ctx.draw_gimp_tile(px, py);
+                continue;
+            }
+
             if let Some(color) = cell_color(cell) {
                 draw_cell(ctx, px, py, color);
                 match cell {
@@ -134,12 +140,17 @@ pub fn draw_active_piece<D: DrawContext>(
         _ => bt_color(kind.color()),
     };
     for &(col, row) in cells {
-        if row < 0 { continue; }
-        let px = origin_x + col as f64 * CELL_PX;
-        let py = if flip {
-            origin_y + (BOARD_ROWS as i32 - 1 - row) as f64 * CELL_PX
+        if row < 0 || row >= BOARD_ROWS as i32 { continue; }
+        let (px, py) = if flip {
+            (
+                origin_x + (BOARD_COLS as i32 - 1 - col) as f64 * CELL_PX,
+                origin_y + (BOARD_ROWS as i32 - 1 - row) as f64 * CELL_PX,
+            )
         } else {
-            origin_y + row as f64 * CELL_PX
+            (
+                origin_x + col as f64 * CELL_PX,
+                origin_y + row as f64 * CELL_PX,
+            )
         };
         draw_cell(ctx, px, py, color);
         match kind {
@@ -164,12 +175,17 @@ pub fn draw_ghost_piece<D: DrawContext>(
     };
     let ghost_color = base.quarter();
     for &(col, row) in cells {
-        if row < 0 { continue; }
-        let px = origin_x + col as f64 * CELL_PX;
-        let py = if flip {
-            origin_y + (BOARD_ROWS as i32 - 1 - row) as f64 * CELL_PX
+        if row < 0 || row >= BOARD_ROWS as i32 { continue; }
+        let (px, py) = if flip {
+            (
+                origin_x + (BOARD_COLS as i32 - 1 - col) as f64 * CELL_PX,
+                origin_y + (BOARD_ROWS as i32 - 1 - row) as f64 * CELL_PX,
+            )
         } else {
-            origin_y + row as f64 * CELL_PX
+            (
+                origin_x + col as f64 * CELL_PX,
+                origin_y + row as f64 * CELL_PX,
+            )
         };
         ctx.stroke_rect(px + 1.0, py + 1.0, CELL_PX - 2.0, CELL_PX - 2.0, ghost_color);
     }

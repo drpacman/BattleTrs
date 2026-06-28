@@ -70,7 +70,13 @@ pub fn draw_bazaar<D: DrawContext>(ctx: &mut D, state: &BazaarStateView) {
     draw_text(ctx, sel_def.description, 30.0, 720.0, Color::rgb(180, 180, 180), 2.0);
 
     ctx.fill_rect(0.0, 790.0, WINDOW_W, 40.0, Color::rgb(30, 0, 50));
-    draw_text(ctx, "[UP/DN] SELECT", 30.0, 800.0, Color::rgb(140, 140, 140), 2.0);
-    draw_text(ctx, "[ENTER] BUY", 270.0, 800.0, Color::rgb(140, 140, 140), 2.0);
-    draw_text(ctx, "[ESC] DONE", 500.0, 800.0, Color::rgb(140, 140, 140), 2.0);
+    if state.player_done {
+        let msg = "WAITING FOR OPPONENT...";
+        let mw = text_w(msg, 2.0);
+        draw_text(ctx, msg, (WINDOW_W - mw) / 2.0, 800.0, Color::rgb(200, 180, 60), 2.0);
+    } else {
+        draw_text(ctx, "[UP/DN] SELECT", 30.0, 800.0, Color::rgb(140, 140, 140), 2.0);
+        draw_text(ctx, "[ENTER] BUY", 270.0, 800.0, Color::rgb(140, 140, 140), 2.0);
+        draw_text(ctx, "[ESC] DONE", 500.0, 800.0, Color::rgb(140, 140, 140), 2.0);
+    }
 }

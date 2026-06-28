@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 pub const BOARD_COLS: usize = 10;
 pub const BOARD_ROWS: usize = 28;
 
-// Fallout zone: columns 2-7 are black holes (piece cells landing here are destroyed)
+// Fallout zone: middle 6 columns cleared by Fallout weapon on activation
 pub const FALLOUT_COL_MIN: usize = 2;
 pub const FALLOUT_COL_MAX: usize = 7; // inclusive
 
@@ -24,6 +24,9 @@ pub enum Cell {
     Struct_,      // permanent wall cell (Bottle zone / out-of-bounds sentinel)
     Bug,          // invisible solid cell (Bug Report weapon) — occupied but rendered empty
     Twilight,     // cell turned invisible by Twilight Zone weapon — solid but rendered grey
+    /// Gimp weapon: existing cell wrapped in uniform distracting appearance; still solid/clearable.
+    /// Carries the original cell's fund value so Die/Happy values survive the conversion.
+    Gimp(i32),
 }
 
 impl Cell {
@@ -36,6 +39,8 @@ impl Cell {
         match self {
             Cell::Die(pips) => pips as i32,
             Cell::Happy => 150,
+            // Gimp preserves the original cell's value (BTGimpBox::value_ in original).
+            Cell::Gimp(v) => v,
             _ => 0,
         }
     }
@@ -53,6 +58,9 @@ pub struct Board {
     /// cells[row][col], row 0 is top.
     cells: [[Cell; BOARD_COLS]; BOARD_ROWS],
     pub upside_down: bool,
+    /// True while Fallout is active: columns FALLOUT_COL_MIN–FALLOUT_COL_MAX have no floor.
+    /// Mirrors BTBoardManager::occupied() Fallout branch from the original.
+    pub fallout_active: bool,
 }
 
 impl Default for Board {
@@ -60,6 +68,7 @@ impl Default for Board {
         Board {
             cells: [[Cell::Empty; BOARD_COLS]; BOARD_ROWS],
             upside_down: false,
+            fallout_active: false,
         }
     }
 }
@@ -71,17 +80,30 @@ impl Board {
 
     /// Whether position (col, row) is occupied.
     ///
-    /// Mirrors BTBoardManager::occupied(): row < 0 (ceiling) is always occupied so
-    /// pieces cannot spawn partially above the board.
+    /// Mirrors BTBoardManager::occupied().  When Fallout is active the floor is
+    /// removed for FALLOUT_COL_MIN–FALLOUT_COL_MAX (cols 2–7), so pieces fall
+    /// straight through.  A hard safety bound at BOARD_ROWS+4 ensures pieces
+    /// eventually stop regardless (matches original `height_ + BT_PIECE_HEIGHT`).
     pub fn occupied(&self, col: i32, row: i32) -> bool {
         if col < 0 || col >= BOARD_COLS as i32 {
             return true; // side walls
         }
         if row < 0 {
-            return true; // ceiling — key: pieces cannot exist above row 0
+            return true; // ceiling
         }
         if row >= BOARD_ROWS as i32 {
-            return true; // floor
+            // Hard safety floor prevents infinite falling.
+            if row >= BOARD_ROWS as i32 + 4 {
+                return true;
+            }
+            // During Fallout, center columns (2–7) have no floor.
+            if self.fallout_active {
+                let c = col as usize;
+                if c >= FALLOUT_COL_MIN && c <= FALLOUT_COL_MAX {
+                    return false;
+                }
+            }
+            return true; // ledge columns (0–1, 8–9) always have a floor
         }
         !self.cells[row as usize][col as usize].is_empty()
     }
@@ -162,16 +184,6 @@ impl Board {
         }
 
         LinesCleared { count, funds_earned, happy_missed }
-    }
-
-    /// Lock cells, skipping Fallout zone columns 2-7 (black hole).
-    pub fn lock_piece_filtered(&mut self, cells: &[(i32, i32)], cell_value: Cell, fallout: bool) {
-        for &(col, row) in cells {
-            if fallout && col >= FALLOUT_COL_MIN as i32 && col <= FALLOUT_COL_MAX as i32 {
-                continue; // Cell destroyed by Fallout
-            }
-            self.set_cell(col, row, cell_value);
-        }
     }
 
     /// Rise Up: shift all rows up by 1, insert a junk row at the bottom.
@@ -292,6 +304,40 @@ impl Board {
         }
     }
 
+    /// Convert all non-empty, non-Struct_ cells to Cell::Gimp (Gimp weapon).
+    /// Each cell's fund value is captured before conversion so Die/Happy values survive.
+    pub fn apply_gimp(&mut self) {
+        for row in &mut self.cells {
+            for cell in row.iter_mut() {
+                if !cell.is_empty() && *cell != Cell::Struct_ {
+                    *cell = Cell::Gimp(cell.fund_value());
+                }
+            }
+        }
+    }
+
+    /// Clear all cells in the Fallout zone (cols 2–7) across every row (Fallout weapon, one-time).
+    pub fn apply_fallout_wipe(&mut self) {
+        for row in &mut self.cells {
+            for c in FALLOUT_COL_MIN..=FALLOUT_COL_MAX {
+                if row[c] != Cell::Struct_ {
+                    row[c] = Cell::Empty;
+                }
+            }
+        }
+    }
+
+    /// Randomly remove ~50% of all removable board cells (Blind Cleric weapon).
+    pub fn apply_blind(&mut self, rng: &mut StdRng) {
+        for row in &mut self.cells {
+            for cell in row.iter_mut() {
+                if !cell.is_empty() && *cell != Cell::Struct_ && rng.gen_bool(0.5) {
+                    *cell = Cell::Empty;
+                }
+            }
+        }
+    }
+
     /// Fill Bottle neck zone walls with Struct_ cells (Bottle Neck weapon activation).
     /// Rows 7-20, cols 0-2 and 7-9 become permanent walls.
     pub fn fill_bottle_walls(&mut self) {
@@ -322,6 +368,12 @@ impl Board {
 
     pub fn snapshot(&self) -> BoardSnapshot {
         BoardSnapshot { cells: self.cells }
+    }
+
+    /// Replace this board's cells with those from a snapshot (Swap weapon).
+    /// Does not touch `upside_down` or `fallout_active` — those are per-player effects.
+    pub fn load_snapshot(&mut self, snap: &BoardSnapshot) {
+        self.cells = snap.cells;
     }
 }
 
@@ -356,17 +408,34 @@ mod tests {
     #[test]
     fn occupied_ceiling_wall() {
         let board = Board::new();
-        // y < 0 is always occupied (ceiling wall)
         assert!(board.occupied(5, -1));
         assert!(board.occupied(0, -100));
-        // Inside empty board is not occupied
         assert!(!board.occupied(5, 0));
         assert!(!board.occupied(0, 27));
-        // Side walls
         assert!(board.occupied(-1, 10));
         assert!(board.occupied(10, 10));
-        // Floor
         assert!(board.occupied(5, 28));
+    }
+
+    #[test]
+    fn fallout_removes_floor_for_center_columns() {
+        let mut board = Board::new();
+        // Without Fallout: floor exists everywhere at row BOARD_ROWS
+        assert!(board.occupied(5, BOARD_ROWS as i32));     // center col, has floor
+        assert!(board.occupied(1, BOARD_ROWS as i32));     // ledge col, has floor
+        board.fallout_active = true;
+        // Center columns 2–7: floor removed
+        assert!(!board.occupied(2, BOARD_ROWS as i32));
+        assert!(!board.occupied(5, BOARD_ROWS as i32));
+        assert!(!board.occupied(7, BOARD_ROWS as i32));
+        // Ledge columns 0–1 and 8–9: floor still exists
+        assert!(board.occupied(0, BOARD_ROWS as i32));
+        assert!(board.occupied(1, BOARD_ROWS as i32));
+        assert!(board.occupied(8, BOARD_ROWS as i32));
+        assert!(board.occupied(9, BOARD_ROWS as i32));
+        // Safety bound: at BOARD_ROWS+4 always occupied; below that still open
+        assert!(board.occupied(5, BOARD_ROWS as i32 + 4));
+        assert!(!board.occupied(5, BOARD_ROWS as i32 + 3));
     }
 
     #[test]

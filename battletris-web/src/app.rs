@@ -1,4 +1,7 @@
+use rand::SeedableRng;
+
 use battletris_engine::engine::game_state::{GameMode, GamePhase, PlayerInput};
+use battletris_engine::engine::weapons::WeaponKind;
 use battletris_engine::protocol::GameMessage;
 use battletris_engine::session::{apply_board_visibility, NetworkSession};
 
@@ -284,7 +287,16 @@ impl WasmApp {
                 }
 
                 let (_, outgoing) = session.tick(input, elapsed_ms);
+                let mut rng = rand::rngs::StdRng::seed_from_u64(0);
                 for msg in outgoing {
+                    // Spy weapons reveal the opponent's board to the firer — they must
+                    // be applied locally and must NOT be forwarded to the opponent.
+                    if let GameMessage::WeaponLaunched { kind } = msg {
+                        if matches!(kind, WeaponKind::Ace | WeaponKind::Ames | WeaponKind::Condor) {
+                            session.state.apply_incoming_weapon(kind, &mut rng);
+                            continue;
+                        }
+                    }
                     transport.send(&msg);
                 }
 

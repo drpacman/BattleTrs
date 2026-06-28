@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use battletris_engine::protocol::GameMessage;
+use battletris_engine::engine::game_state::LINES_UNTIL_BAZAAR;
 
 use crate::conn::GameConn;
 use crate::db::PlayerDb;
@@ -28,7 +29,7 @@ pub async fn run_session(
     let _ = b.write_frame(&GameMessage::GameStart { opponent_name: name_a.clone() }).await;
 
     let mut combined_lines: u32 = 0;
-    let mut next_bazaar_threshold: u32 = 20;
+    let mut next_bazaar_threshold: u32 = LINES_UNTIL_BAZAAR;
 
     loop {
         tokio::select! {
@@ -84,7 +85,7 @@ async fn handle_message(
         GameMessage::LinesCleared { count, .. } => {
             *combined_lines += count;
             while *combined_lines >= *next_threshold {
-                *next_threshold += 20;
+                *next_threshold += LINES_UNTIL_BAZAAR;
                 eprintln!("[SERVER] combined_lines={combined_lines} — sending BazaarOpen");
                 let _ = sender.write_frame(&GameMessage::BazaarOpen).await;
                 let _ = peer.write_frame(&GameMessage::BazaarOpen).await;

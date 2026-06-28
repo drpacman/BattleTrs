@@ -1,7 +1,7 @@
 use rand::{Rng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 
-use crate::engine::board::{Board, Cell};
+use crate::engine::board::{Board, Cell, BOARD_COLS, BOARD_ROWS};
 use crate::engine::piece::PieceKind;
 use crate::engine::score::Score;
 
@@ -110,20 +110,20 @@ pub static WEAPONS: [WeaponDef; WEAPON_COUNT] = [
     WeaponDef { kind: WeaponKind::FBF,      name: "Four-by-Four",            description: "Every Box piece becomes a massive hollow 4x4 square.",                        price: 425,  duration: 10 },
     WeaponDef { kind: WeaponKind::Hatter,   name: "The Mad Hatter",          description: "Opponent's current piece rotates automatically every tick.",                  price: 375,  duration: 5  },
     WeaponDef { kind: WeaponKind::Upbyside, name: "Upbyside-down",           description: "Flips opponent's board upside-down - pieces fall from the top.",              price: 125,  duration: 10 },
-    WeaponDef { kind: WeaponKind::Fallout,  name: "Fallout",                 description: "Columns 2-7 become black holes - pieces that land there vanish.",             price: 250,  duration: 10 },
+    WeaponDef { kind: WeaponKind::Fallout,  name: "Fallout",                 description: "Clears all cells from the middle 6 columns, leaving a gap pieces fall into.", price: 250,  duration: 10 },
     WeaponDef { kind: WeaponKind::Swap,     name: "Swap Meet",               description: "Instantly exchange your board with your opponent's.",                         price: 1200, duration: 0  },
     WeaponDef { kind: WeaponKind::Lawyers,  name: "Lawyer's Delite",         description: "Each line you clear also adds a junk row to your opponent.",                  price: 350,  duration: 5  },
     WeaponDef { kind: WeaponKind::RiseUp,   name: "Rise Up",                 description: "Adds one junk row to the bottom of opponent's board.",                        price: 75,   duration: 0  },
     WeaponDef { kind: WeaponKind::FlipOut,  name: "Flip Out",                description: "Mirrors opponent's board horizontally.",                                      price: 15,   duration: 0  },
-    WeaponDef { kind: WeaponKind::Speedy,   name: "Speedy Gonzales",         description: "Speeds up opponent's piece drop rate dramatically.",                          price: 275,  duration: 10 },
+    WeaponDef { kind: WeaponKind::Speedy,   name: "Speedy Gonzales",         description: "Doubles opponent's piece drop speed. Stacks with each additional launch.",  price: 275,  duration: 10 },
     WeaponDef { kind: WeaponKind::Missing,  name: "Missing Pieces",          description: "Removes a random cell from opponent's board.",                                price: 50,   duration: 0  },
-    WeaponDef { kind: WeaponKind::PieceIt,  name: "Piece It Together",       description: "Drops a random piece directly onto opponent's board.",                        price: 100,  duration: 0  },
-    WeaponDef { kind: WeaponKind::Blind,    name: "The Blind Cleric",        description: "Permanently blinds several cells on opponent's board.",                       price: 400,  duration: 0  },
+    WeaponDef { kind: WeaponKind::PieceIt,  name: "Piece It Together",       description: "Places a single extra cell at a random position in the middle of opponent's board.", price: 100, duration: 0 },
+    WeaponDef { kind: WeaponKind::Blind,    name: "The Blind Cleric",        description: "Randomly destroys approximately half of all cells on opponent's board.",    price: 400,  duration: 0  },
     WeaponDef { kind: WeaponKind::Mondale,  name: "Mondale '96",             description: "Taxes 30% of all funds opponent earns for 50 lines.",                        price: 150,  duration: 50 },
     WeaponDef { kind: WeaponKind::Keating,  name: "Keating Five",            description: "Steals all of opponent's funds instantly.",                                   price: 425,  duration: 0  },
     WeaponDef { kind: WeaponKind::Carter,   name: "Carter Years",            description: "Doubles weapon prices in opponent's bazaar for 20 lines.",                   price: 250,  duration: 20 },
     WeaponDef { kind: WeaponKind::Reagan,   name: "Reagan Era",              description: "Negates opponent's funds - turns positive funds negative.",                   price: 425,  duration: 0  },
-    WeaponDef { kind: WeaponKind::Ames,     name: "William Ames",            description: "Reveals opponent's exact funds to you for 20 lines.",                        price: 50,   duration: 20 },
+    WeaponDef { kind: WeaponKind::Ames,     name: "William Ames",            description: "Shows opponent's board at 50% accuracy and reveals their funds for 20 lines.", price: 50,  duration: 20 },
     WeaponDef { kind: WeaponKind::Ace,      name: "Ace of Spies",            description: "Shows opponent's board at 80% accuracy for 30 lines.",                       price: 100,  duration: 30 },
     WeaponDef { kind: WeaponKind::Condor,   name: "The Condor",              description: "Reveals opponent's full board and funds for 40 lines.",                      price: 225,  duration: 40 },
     WeaponDef { kind: WeaponKind::NiceDay,  name: "Have a Nice Day",         description: "Forces a Happy (smiley) piece as opponent's next piece.",                    price: 50,   duration: 0  },
@@ -131,15 +131,15 @@ pub static WEAPONS: [WeaponDef; WEAPON_COUNT] = [
     WeaponDef { kind: WeaponKind::NoDice,   name: "No Dice",                 description: "Removes the Die piece from opponent's pool for 35 lines.",                   price: 600,  duration: 35 },
     WeaponDef { kind: WeaponKind::Bug,      name: "Bug Report",              description: "Places invisible solid cells on opponent's board.",                           price: 320,  duration: 0  },
     WeaponDef { kind: WeaponKind::Bottle,   name: "Bottle Neck",             description: "Narrows opponent's playfield to 4 columns in the middle zone.",              price: 150,  duration: 10 },
-    WeaponDef { kind: WeaponKind::NoSlide,  name: "Slide Denied",            description: "Opponent cannot slide pieces left or right.",                                price: 125,  duration: 10 },
+    WeaponDef { kind: WeaponKind::NoSlide,  name: "Slide Denied",            description: "Removes opponent's post-landing adjustment window - pieces lock immediately on touching down.", price: 125, duration: 10 },
     WeaponDef { kind: WeaponKind::Susan,    name: "Lazy Susan",              description: "Swaps your entire arsenal with your opponent's arsenal.",                    price: 600,  duration: 0  },
-    WeaponDef { kind: WeaponKind::Meadow,   name: "Meadow",                  description: "Opponent earns no funds from line clears.",                                  price: 475,  duration: 10 },
+    WeaponDef { kind: WeaponKind::Meadow,   name: "Meadow",                  description: "Halves the drop speed of opponent's pieces for 10 lines.",                  price: 475,  duration: 10 },
     WeaponDef { kind: WeaponKind::Mirror,   name: "Mirror Mirror",           description: "Reflects or nullifies incoming weapons for 10 lines.",                       price: 500,  duration: 10 },
     WeaponDef { kind: WeaponKind::Twilight, name: "The Twilight Zone",       description: "Turns all of opponent's existing cells invisible.",                           price: 450,  duration: 0  },
     WeaponDef { kind: WeaponKind::Slick,    name: "Slick Willy",             description: "Opponent's piece slides sideways automatically.",                            price: 650,  duration: 3  },
     WeaponDef { kind: WeaponKind::Broken,   name: "Broken Record",           description: "Opponent receives the same piece repeatedly for 5 lines.",                  price: 325,  duration: 5  },
     WeaponDef { kind: WeaponKind::Force,    name: "The Force",               description: "Cleared lines are zeroed in place - rows above don't shift down.",          price: 325,  duration: 5  },
-    WeaponDef { kind: WeaponKind::Gimp,     name: "The Gimp",                description: "Flashes an embarrassing overlay on your opponent's board briefly.",         price: 25,   duration: 0  },
+    WeaponDef { kind: WeaponKind::Gimp,     name: "The Gimp",                description: "Converts opponent's board cells to look identical, making the layout unreadable.", price: 25, duration: 0 },
 ];
 
 pub fn weapon_def(kind: WeaponKind) -> &'static WeaponDef {
@@ -221,8 +221,6 @@ pub struct WeaponState {
     pub blind_cells: Vec<(usize, usize)>,
     /// Active Mondale stack count (each launch = +1 stack, stacks when remaining > 0).
     pub mondale_stacks: u8,
-    /// Next piece should be Happy (NiceDay weapon).
-    pub nice_day_pending: bool,
 }
 
 impl Default for WeaponState {
@@ -233,7 +231,6 @@ impl Default for WeaponState {
             broken_kind: None,
             blind_cells: Vec::new(),
             mondale_stacks: 0,
-            nice_day_pending: false,
         }
     }
 }
@@ -257,6 +254,10 @@ impl WeaponState {
             }
             match kind {
                 WeaponKind::Bottle => board.fill_bottle_walls(),
+                WeaponKind::Fallout => {
+                    board.apply_fallout_wipe();
+                    board.fallout_active = true;
+                }
                 WeaponKind::Slick => {
                     if self.slick_dir == 0 {
                         self.slick_dir = 1;
@@ -271,6 +272,9 @@ impl WeaponState {
     pub fn deactivate(&mut self, kind: WeaponKind, board: &mut Board) {
         match kind {
             WeaponKind::Bottle => board.clear_bottle_walls(),
+            WeaponKind::Fallout => {
+                board.fallout_active = false;
+            }
             WeaponKind::Slick => {
                 if self.remaining[WeaponKind::Slick.index()] == 0 {
                     self.slick_dir = 0;
@@ -317,9 +321,14 @@ impl WeaponState {
         }
     }
 
-    /// Drop interval multiplier when Speedy is active (1 = normal, 5 = 5× faster).
+    /// Drop interval divisor when Speedy is active (1 = normal, 2 = 2× faster, matching original).
     pub fn speedy_multiplier(&self) -> u32 {
-        if self.is_active(WeaponKind::Speedy) { 5 } else { 1 }
+        if self.is_active(WeaponKind::Speedy) { 2 } else { 1 }
+    }
+
+    /// Drop interval multiplier when Meadow is active (1 = normal, 2 = half speed, matching original).
+    pub fn meadow_multiplier(&self) -> u32 {
+        if self.is_active(WeaponKind::Meadow) { 2 } else { 1 }
     }
 
     /// True if NoSlide is active (left/right input blocked).
@@ -403,18 +412,17 @@ pub fn apply_weapon_instant(
             tgt_board.remove_random_cell(rng);
         }
         WeaponKind::PieceIt => {
-            let col = rng.gen_range(1..7i32);
-            let piece_cells = PieceKind::Plug.cells(0);
-            // Simulate gravity: find the lowest row the piece can occupy
-            let mut row = 0i32;
-            loop {
-                let blocked = piece_cells.iter().any(|&(dc, dr)| {
-                    tgt_board.occupied(col + dc, row + dr + 1)
-                });
-                if blocked { break; }
-                row += 1;
+            // Place one single cell at a random unoccupied position in the middle half of the board
+            let row_min = BOARD_ROWS / 4;
+            let row_max = 3 * BOARD_ROWS / 4;
+            let candidates: Vec<(usize, usize)> = (row_min..row_max)
+                .flat_map(|r| (0..BOARD_COLS).map(move |c| (r, c)))
+                .filter(|&(r, c)| tgt_board.cell(c as i32, r as i32).is_empty())
+                .collect();
+            if !candidates.is_empty() {
+                let (r, c) = candidates[rng.gen_range(0..candidates.len())];
+                tgt_board.set_cell(c as i32, r as i32, Cell::Regular(rng.gen_range(1u8..=8)));
             }
-            tgt_board.add_piece_at(piece_cells, col, row, Cell::Regular(rng.gen_range(1u8..=8)));
         }
         WeaponKind::Bug => {
             // Place 4 invisible Bug cells in a 2×2 at a random upper-mid column
@@ -424,14 +432,8 @@ pub fn apply_weapon_instant(
             tgt_board.add_piece_at(&bug_cells, col, row, Cell::Bug);
         }
         WeaponKind::Blind => {
-            // Blind 6 random non-empty cells (or random cells if board is sparse)
-            for _ in 0..6 {
-                let r = rng.gen_range(0..28usize);
-                let c = rng.gen_range(0..10usize);
-                if !tgt_ws.blind_cells.contains(&(r, c)) {
-                    tgt_ws.blind_cells.push((r, c));
-                }
-            }
+            tgt_board.apply_blind(rng);
+            tgt_ws.blind_cells.clear();
         }
         WeaponKind::Twilight => {
             tgt_board.apply_twilight();
@@ -453,7 +455,7 @@ pub fn apply_weapon_instant(
             *tgt_next = PieceKind::Happy;
         }
         WeaponKind::Gimp => {
-            // Visual flash only — no board state change; caller handles render flag
+            tgt_board.apply_gimp();
         }
         _ => {
             // Non-instant weapons should not reach this function
@@ -489,7 +491,7 @@ pub struct BazaarState {
     pub weapons: Vec<WeaponKind>,
     pub selected: usize,
     pub player_done: bool,
-    pub ernie_done: bool,
+    pub opponent_done: bool,
 }
 
 impl BazaarState {
@@ -502,7 +504,7 @@ impl BazaarState {
             weapons: kinds,
             selected: 0,
             player_done: false,
-            ernie_done: false,
+            opponent_done: false,
         }
     }
 
@@ -568,6 +570,8 @@ pub struct BazaarStateView {
     pub selected: usize,
     pub player_funds: i64,
     pub carter_active: bool,
+    /// True after the player pressed Done — waiting for opponent to finish.
+    pub player_done: bool,
 }
 
 impl BazaarStateView {
@@ -577,6 +581,7 @@ impl BazaarStateView {
             selected: state.selected,
             player_funds: funds,
             carter_active,
+            player_done: state.player_done,
         }
     }
 }

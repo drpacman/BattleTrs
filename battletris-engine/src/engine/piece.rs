@@ -251,11 +251,6 @@ impl PieceKind {
     pub fn random_filtered(ws: &WeaponState, rng: &mut StdRng) -> PieceKind {
         use crate::engine::weapons::WeaponKind;
 
-        // NiceDay: next piece is Happy
-        if ws.nice_day_pending {
-            return PieceKind::Happy;
-        }
-
         // Broken Record: repeat the locked piece kind
         if ws.is_active(WeaponKind::Broken) {
             if let Some(kind) = ws.broken_kind {

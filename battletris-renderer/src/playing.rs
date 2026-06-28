@@ -18,18 +18,10 @@ pub fn draw_playing<D: DrawContext>(ctx: &mut D, view: &PlayingView) {
     draw_board_with_effects(ctx, view, true);
 
     if let Some((kind, ref cells)) = view.active_piece {
-        draw_ghost_piece(ctx, kind, &view.ghost_cells, PLAYER_BOARD_X, PLAYER_BOARD_Y, view.upbyside_active);
-        draw_active_piece(ctx, kind, cells, PLAYER_BOARD_X, PLAYER_BOARD_Y, view.upbyside_active);
-    }
-
-    if view.gimp_flash {
-        ctx.fill_rect(PLAYER_BOARD_X, PLAYER_BOARD_Y, BOARD_PX_W, BOARD_PX_H, Color::rgba(0, 0, 0, 180));
-        let text = "GIMP!";
-        let tw = text_w(text, 5.0);
-        draw_text(ctx, text,
-            PLAYER_BOARD_X + (BOARD_PX_W - tw) / 2.0,
-            PLAYER_BOARD_Y + BOARD_PX_H / 2.0 - 18.0,
-            Color::rgb(255, 50, 50), 5.0);
+        if !view.twilight_active {
+            draw_ghost_piece(ctx, kind, &view.ghost_cells, PLAYER_BOARD_X, PLAYER_BOARD_Y, view.upbyside_active);
+            draw_active_piece(ctx, kind, cells, PLAYER_BOARD_X, PLAYER_BOARD_Y, view.upbyside_active);
+        }
     }
 
     if view.upbyside_active {
@@ -50,7 +42,7 @@ pub fn draw_playing<D: DrawContext>(ctx: &mut D, view: &PlayingView) {
     }
 
     draw_weapon_chips(ctx, &view.player_active_weapons, PLAYER_BOARD_X);
-    draw_weapon_chips(ctx, &view.ernie_active_weapons, OPP_BOARD_X);
+    draw_weapon_chips(ctx, &view.opponent_active_weapons, OPP_BOARD_X);
 
     draw_stats(ctx, view);
 }
@@ -82,11 +74,16 @@ fn draw_board_with_effects<D: DrawContext>(ctx: &mut D, view: &PlayingView, is_p
     for row in 0..BOARD_ROWS {
         for col in 0..BOARD_COLS {
             let cell = snapshot.cells[row][col];
-            let px = origin_x + col as f64 * CELL_PX;
-            let py = if is_player && view.upbyside_active {
-                origin_y + (BOARD_ROWS - 1 - row) as f64 * CELL_PX
+            let (px, py) = if is_player && view.upbyside_active {
+                (
+                    origin_x + (BOARD_COLS - 1 - col) as f64 * CELL_PX,
+                    origin_y + (BOARD_ROWS - 1 - row) as f64 * CELL_PX,
+                )
             } else {
-                origin_y + row as f64 * CELL_PX
+                (
+                    origin_x + col as f64 * CELL_PX,
+                    origin_y + row as f64 * CELL_PX,
+                )
             };
 
             if is_player && view.blind_cells.contains(&(row, col)) {
@@ -95,12 +92,19 @@ fn draw_board_with_effects<D: DrawContext>(ctx: &mut D, view: &PlayingView, is_p
             }
 
             if is_player && view.twilight_active && !cell.is_empty() {
-                ctx.fill_rect(px, py, CELL_PX, CELL_PX, Color::rgb(40, 40, 40));
+                // Original game: erase cells to board background (black_gc).
+                // Render a grid dot so hidden cells are indistinguishable from empty ones.
+                ctx.fill_rect(px + 13.0, py + 13.0, 2.0, 2.0, Color::GRID);
                 continue;
             }
 
             if cell == Cell::Bug {
                 ctx.fill_rect(px + 13.0, py + 13.0, 2.0, 2.0, Color::GRID);
+                continue;
+            }
+
+            if matches!(cell, Cell::Gimp(_)) {
+                ctx.draw_gimp_tile(px, py);
                 continue;
             }
 
@@ -118,15 +122,6 @@ fn draw_board_with_effects<D: DrawContext>(ctx: &mut D, view: &PlayingView, is_p
         }
     }
 
-    if !is_player && view.opponent_gimp_flash {
-        ctx.fill_rect(origin_x, origin_y, BOARD_PX_W, BOARD_PX_H, Color::rgba(0, 0, 0, 180));
-        let text = "GIMP!";
-        let tw = text_w(text, 5.0);
-        draw_text(ctx, text,
-            origin_x + (BOARD_PX_W - tw) / 2.0,
-            origin_y + BOARD_PX_H / 2.0 - 18.0,
-            Color::rgb(255, 50, 50), 5.0);
-    }
 }
 
 fn draw_weapon_chips<D: DrawContext>(ctx: &mut D, weapons: &[ActiveWeaponView], board_x: f64) {
@@ -220,8 +215,8 @@ fn draw_stats<D: DrawContext>(ctx: &mut D, view: &PlayingView) {
     }
 
     sy += 4.0;
-    if view.ernie_arsenal_count > 0 {
-        draw_text(ctx, &format!("OPP ARSENAL: {}", view.ernie_arsenal_count),
+    if view.opponent_arsenal_count > 0 {
+        draw_text(ctx, &format!("OPP ARSENAL: {}", view.opponent_arsenal_count),
             sx + 5.0, sy, Color::rgb(120, 80, 80), 1.0);
     }
 

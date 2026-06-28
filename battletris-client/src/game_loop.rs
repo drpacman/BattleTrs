@@ -5,6 +5,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use battletris_engine::engine::game_state::{GameMode, GamePhase, PlayerInput, PlayingView};
+use battletris_engine::engine::weapons::WeaponKind;
 use battletris_engine::protocol::GameMessage;
 use battletris_engine::session::{apply_board_visibility, NetworkSession};
 
@@ -33,11 +34,16 @@ pub fn run_game_loop(
     opponent_name: Option<String>,
 ) {
     let seed = rand::random::<u64>();
+    let is_vs_computer = peer.is_some() && player_name.is_none();
     let mut session = NetworkSession::new(seed, player_name);
     session.opponent_name = opponent_name;
 
     if peer.is_some() {
-        session.state.mode = GameMode::VsNetwork;
+        if is_vs_computer {
+            session.state.mode = GameMode::VsComputer;
+        } else {
+            session.state.mode = GameMode::VsNetwork;
+        }
     }
 
     // All modes start immediately: solo, vs-Ernie, and vs-network are all
@@ -62,6 +68,12 @@ pub fn run_game_loop(
             while let Ok(msg) = ch.from_peer.try_recv() {
                 if matches!(msg, GameMessage::PlayerQuit) {
                     session.state.phase = GamePhase::Title;
+                } else if session.state.mode == GameMode::VsComputer
+                    && matches!(msg, GameMessage::GameOver { .. })
+                    && matches!(session.state.phase, GamePhase::Playing | GamePhase::InBazaar)
+                {
+                    // Ernie sent GameOver while player is still alive — player won.
+                    session.state.phase = GamePhase::GameOver { won: true };
                 } else {
                     let replies = session.process_message(msg);
                     for r in replies {
@@ -77,7 +89,16 @@ pub fn run_game_loop(
         let (_, outgoing) = session.tick(input, elapsed_ms);
 
         if let Some(ref ch) = peer {
+            let mut rng = StdRng::from_entropy();
             for msg in outgoing {
+                if let GameMessage::WeaponLaunched { kind } = msg {
+                    // Spy weapons enhance the firer's own board visibility — they must
+                    // be applied locally and must NOT be forwarded to the opponent.
+                    if matches!(kind, WeaponKind::Ace | WeaponKind::Ames | WeaponKind::Condor) {
+                        session.state.apply_incoming_weapon(kind, &mut rng);
+                        continue;
+                    }
+                }
                 let _ = ch.to_peer.try_send(msg);
             }
         } else {

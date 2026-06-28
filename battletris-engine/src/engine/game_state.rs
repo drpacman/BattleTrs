@@ -14,14 +14,16 @@ use crate::protocol::GameMessage;
 
 // Timing constants (milliseconds) — from BTConstants.H
 pub const DROP_INTERVAL_MS: u32 = 512;
+pub const SOFT_DROP_INTERVAL_MS: u32 = 50;
 pub const FAST_DROP_INTERVAL_MS: u32 = 10;
 pub const LOCK_DELAY_MS: u32 = 150;
-pub const SLICK_INTERVAL_MS: u32 = 150; // BT_SLICK_TIMEOUT
+pub const SLICK_INTERVAL_MS: u32 = 20;  // BT_SLICK_TIMEOUT = 20ms (original)
+pub const HATTER_INTERVAL_MS: u32 = 20; // BT_HATTER_TIMEOUT = 20ms (original)
 
 pub const SPAWN_X: i32 = 5;
 pub const SPAWN_Y: i32 = 0;
 pub const HAPPY_FUND_VALUE: i32 = 150;
-pub const LINES_UNTIL_BAZAAR: u32 = 20;
+pub const LINES_UNTIL_BAZAAR: u32 = 4;
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -75,13 +77,14 @@ pub enum PlayerInput {
 pub enum GameEvent {
     LinesCleared(u32),
     BazaarTriggered,
+    /// Local player pressed Done in the bazaar (player_done just set to true).
+    BazaarPlayerDone,
     PieceLocked,
     PieceSpawned,
     WeaponExpired(WeaponKind),
     WeaponFired { kind: WeaponKind, reflect: bool },
     FundsStolen(i64),       // Keating: amount stolen from this player
     FundsReceived(i64),     // Keating: amount added to this player
-    GimpFlash,              // Gimp weapon visual trigger
     RiseUpTopOut,           // Rise Up caused a top-out
     GameOver { won: bool },
 }
@@ -97,14 +100,12 @@ pub struct PlayingView {
     pub opponent_board: Option<BoardSnapshot>,
     // Weapon visuals
     pub player_active_weapons: Vec<ActiveWeaponView>,
-    pub ernie_active_weapons: Vec<ActiveWeaponView>,
+    pub opponent_active_weapons: Vec<ActiveWeaponView>,
     pub player_arsenal: Vec<ArsenalSlotView>,
-    pub ernie_arsenal_count: usize,
+    pub opponent_arsenal_count: usize,
     pub upbyside_active: bool,
     pub blind_cells: Vec<(usize, usize)>,
     pub twilight_active: bool,
-    pub gimp_flash: bool,
-    pub opponent_gimp_flash: bool,
     pub slick_active: bool,
     pub show_opponent_funds: bool,
     pub opponent_board_accuracy: f32,
@@ -131,9 +132,8 @@ pub struct GameState {
     drop_elapsed_ms: u32,
     lock_elapsed_ms: u32,
     slick_elapsed_ms: u32,
+    hatter_elapsed_ms: u32,
     is_soft_dropping: bool,
-    pub gimp_flash_ms: u32,
-    opponent_gimp_flash_ms: u32,
     rng: StdRng,
 }
 
@@ -155,9 +155,8 @@ impl GameState {
             drop_elapsed_ms: 0,
             lock_elapsed_ms: 0,
             slick_elapsed_ms: 0,
+            hatter_elapsed_ms: 0,
             is_soft_dropping: false,
-            gimp_flash_ms: 0,
-            opponent_gimp_flash_ms: 0,
             rng,
         }
     }
@@ -202,9 +201,9 @@ impl GameState {
     pub fn start_game(&mut self, events: &mut Vec<GameEvent>) {
         self.board = Board::new();
         self.score = Score::default();
-        if self.mode == GameMode::SinglePlayer {
+        // if self.mode == GameMode::SinglePlayer {
             self.score.funds = 10_000;
-        }
+        // }
         self.weapon_state = WeaponState::new();
         self.arsenal = Arsenal::new();
         self.bazaar = None;
@@ -212,20 +211,21 @@ impl GameState {
         self.drop_elapsed_ms = 0;
         self.lock_elapsed_ms = 0;
         self.slick_elapsed_ms = 0;
+        self.hatter_elapsed_ms = 0;
         self.is_soft_dropping = false;
-        self.gimp_flash_ms = 0;
-        self.opponent_gimp_flash_ms = 0;
         self.next_piece = PieceKind::random_filtered(&self.weapon_state, &mut self.rng);
         self.phase = GamePhase::Playing;
         self.spawn_next_piece(events);
     }
 
-    fn process_bazaar_input(&mut self, input: Option<PlayerInput>, _events: &mut Vec<GameEvent>) {
+    fn process_bazaar_input(&mut self, input: Option<PlayerInput>, events: &mut Vec<GameEvent>) {
         let Some(input) = input else { return };
         let baz = match self.bazaar.as_mut() {
             Some(b) => b,
             None => return,
         };
+        // Ignore all input once the player has pressed Done — waiting for opponent.
+        if baz.player_done { return; }
         match input {
             PlayerInput::BazaarUp | PlayerInput::RotateCW | PlayerInput::MoveLeft => baz.navigate_up(),
             PlayerInput::BazaarDown | PlayerInput::SoftDrop | PlayerInput::MoveRight => baz.navigate_down(),
@@ -244,7 +244,8 @@ impl GameState {
                 if let Some(baz) = self.bazaar.as_mut() {
                     baz.player_done = true;
                 }
-                // Check if we can close the bazaar
+                events.push(GameEvent::BazaarPlayerDone);
+                // may immediately close if peer already sent BazaarEnd
                 self.maybe_close_bazaar();
             }
             _ => {}
@@ -253,8 +254,10 @@ impl GameState {
 
     fn maybe_close_bazaar(&mut self) {
         let can_close = self.bazaar.as_ref().map(|b| {
+            // VsNetwork requires an explicit opponent_done signal from the peer (server authority).
+            // SinglePlayer and VsComputer close as soon as the local player is done.
             b.player_done
-                && (b.ernie_done || self.mode == GameMode::SinglePlayer)
+                && (b.opponent_done || self.mode != GameMode::VsNetwork)
         }).unwrap_or(false);
         if can_close {
             self.bazaar = None;
@@ -262,12 +265,24 @@ impl GameState {
         }
     }
 
-    /// Signal that Ernie has finished bazaar shopping.
-    pub fn ernie_bazaar_done(&mut self) {
+    pub fn bazaar_done(&mut self) {
         if let Some(baz) = self.bazaar.as_mut() {
-            baz.ernie_done = true;
+            baz.opponent_done = true;
         }
         self.maybe_close_bazaar();
+    }
+
+    /// Swap Meet weapon: replace this player's board with the opponent's snapshot.
+    /// The in-flight active piece is discarded; a new piece spawns immediately.
+    /// Only cell data is exchanged — per-player weapon effects (Fallout, Bottle) stay.
+    pub fn apply_swap_board(&mut self, snap: &crate::engine::board::BoardSnapshot) {
+        self.board.load_snapshot(snap);
+        self.active_piece = None;
+        self.piece_state = PieceState::Dropping;
+        self.drop_elapsed_ms = 0;
+        let mut ev = Vec::new();
+        self.spawn_next_piece(&mut ev);
+        // GameOver from spawn_next_piece (if swapped board is topped out) propagates via self.phase.
     }
 
     /// Open the bazaar immediately (used when opponent line clears trigger the threshold).
@@ -303,9 +318,6 @@ impl GameState {
             }
             PlayerInput::LaunchWeapon(slot) => {
                 if let Some(kind) = self.arsenal.remove_slot(slot as usize) {
-                    if kind == WeaponKind::Gimp {
-                        self.opponent_gimp_flash_ms = 800;
-                    }
                     events.push(GameEvent::WeaponFired { kind, reflect: false });
                 }
                 return;
@@ -324,15 +336,21 @@ impl GameState {
             None => return,
         };
 
-        // NoSlide blocks left/right movement
-        let no_slide = self.weapon_state.no_slide();
-
+        let upbyside = self.weapon_state.is_active(WeaponKind::Upbyside);
         let moved = match input {
             PlayerInput::MoveLeft => {
-                if no_slide { false } else { piece.try_move_left(&self.board) }
+                if upbyside {
+                    piece.try_move_right(&self.board)
+                } else {
+                    piece.try_move_left(&self.board)
+                }
             }
             PlayerInput::MoveRight => {
-                if no_slide { false } else { piece.try_move_right(&self.board) }
+                if upbyside {
+                    piece.try_move_left(&self.board)
+                } else {
+                    piece.try_move_right(&self.board)
+                }
             }
             PlayerInput::RotateCW => piece.try_rotate_cw(&self.board),
             PlayerInput::RotateCCW => piece.try_rotate_ccw(&self.board),
@@ -354,11 +372,7 @@ impl GameState {
     }
 
     fn advance_time(&mut self, elapsed_ms: u32, events: &mut Vec<GameEvent>) {
-        // Gimp flash countdowns
-        self.gimp_flash_ms = self.gimp_flash_ms.saturating_sub(elapsed_ms);
-        self.opponent_gimp_flash_ms = self.opponent_gimp_flash_ms.saturating_sub(elapsed_ms);
-
-        // Slick Willy: independent 150ms sub-timer
+        // Slick Willy: independent 20ms sub-timer
         if self.weapon_state.slick_dir != 0 {
             self.slick_elapsed_ms += elapsed_ms;
             while self.slick_elapsed_ms >= SLICK_INTERVAL_MS {
@@ -367,7 +381,18 @@ impl GameState {
             }
         }
 
-        // Hatter: spin piece on every gravity tick (handled below when drop fires)
+        // Mad Hatter: independent 20ms sub-timer (original BT_HATTER_TIMEOUT = 20ms)
+        if self.weapon_state.is_active(WeaponKind::Hatter) {
+            self.hatter_elapsed_ms += elapsed_ms;
+            while self.hatter_elapsed_ms >= HATTER_INTERVAL_MS {
+                self.hatter_elapsed_ms -= HATTER_INTERVAL_MS;
+                if let Some(piece) = self.active_piece.as_mut() {
+                    piece.try_rotate_cw(&self.board);
+                }
+            }
+        } else {
+            self.hatter_elapsed_ms = 0;
+        }
 
         if self.piece_state == PieceState::LockDelay {
             self.lock_elapsed_ms += elapsed_ms;
@@ -378,23 +403,19 @@ impl GameState {
         }
 
         let speedy_mult = self.weapon_state.speedy_multiplier();
-        let drop_interval = if self.piece_state == PieceState::HardDropping || self.is_soft_dropping {
+        let meadow_mult = self.weapon_state.meadow_multiplier();
+        let drop_interval = if self.piece_state == PieceState::HardDropping {
             FAST_DROP_INTERVAL_MS
+        } else if self.is_soft_dropping {
+            SOFT_DROP_INTERVAL_MS
         } else {
-            DROP_INTERVAL_MS / speedy_mult.max(1)
+            (DROP_INTERVAL_MS * meadow_mult) / speedy_mult.max(1)
         };
 
         self.drop_elapsed_ms += elapsed_ms;
 
         while self.drop_elapsed_ms >= drop_interval {
             self.drop_elapsed_ms -= drop_interval;
-
-            // Hatter: auto-rotate on each gravity tick
-            if self.weapon_state.is_active(WeaponKind::Hatter) {
-                if let Some(piece) = self.active_piece.as_mut() {
-                    piece.try_rotate_cw(&self.board);
-                }
-            }
 
             let piece = match self.active_piece.as_mut() {
                 Some(p) => p,
@@ -403,7 +424,8 @@ impl GameState {
 
             if piece.try_move_down(&self.board) {
                 // still falling
-            } else if self.piece_state == PieceState::HardDropping {
+            } else if self.piece_state == PieceState::HardDropping || self.weapon_state.no_slide() {
+                // HardDrop or NoSlide: lock immediately, no delay window
                 self.lock_current_piece(events);
                 return;
             } else {
@@ -441,9 +463,7 @@ impl GameState {
         let cell = piece.kind.locked_cell();
         let abs_cells = piece.absolute_cells();
 
-        // Lock with Fallout filter if active
-        let fallout = self.weapon_state.is_active(WeaponKind::Fallout);
-        self.board.lock_piece_filtered(&abs_cells, cell, fallout);
+        self.board.lock_piece(&abs_cells, cell);
         events.push(GameEvent::PieceLocked);
 
         // Broken Record: record first piece kind locked after activation
@@ -459,17 +479,9 @@ impl GameState {
         };
 
         if cleared.count > 0 {
-            // Lawyers: each line cleared triggers rise_up on opponent (game_loop handles)
-            if self.weapon_state.is_active(WeaponKind::Lawyers) {
-                // Emit LinesCleared — game_loop will forward rise_up to opponent
-            }
-
             // Apply Mondale tax to funds earned
-            let meadow = self.weapon_state.is_active(WeaponKind::Meadow);
-            if !meadow {
-                let mondale_rate = self.weapon_state.mondale_rate();
-                self.score.add_funds_taxed(cleared.funds_earned, mondale_rate);
-            }
+            let mondale_rate = self.weapon_state.mondale_rate();
+            self.score.add_funds_taxed(cleared.funds_earned, mondale_rate);
 
             let bazaar_triggered = self.score.add_lines(cleared.count);
             events.push(GameEvent::LinesCleared(cleared.count));
@@ -551,10 +563,6 @@ impl GameState {
                         &mut self.next_piece,
                         rng,
                     );
-                    if kind == WeaponKind::Gimp {
-                        self.gimp_flash_ms = 800;
-                        events.push(GameEvent::GimpFlash);
-                    }
                     if outcome.rise_up_topped {
                         self.phase = GamePhase::GameOver { won: false };
                         events.push(GameEvent::RiseUpTopOut);
@@ -573,7 +581,6 @@ impl GameState {
     }
 
     /// Teleport AI's piece to (col, rotation) and hard-drop-lock it.
-    /// Used by ernie.rs to apply Ernie's AI decision.
     pub fn ai_place_piece(&mut self, col: i32, rotation: u8) -> Vec<GameEvent> {
         if let Some(piece) = self.active_piece.as_mut() {
             piece.x = col;
@@ -632,9 +639,11 @@ impl GameState {
             || self.weapon_state.is_active(WeaponKind::Ace)
             || self.weapon_state.is_active(WeaponKind::Condor);
         let accuracy = if self.weapon_state.is_active(WeaponKind::Condor) {
-            1.0
+            1.0f32
         } else if self.weapon_state.is_active(WeaponKind::Ace) {
             0.8
+        } else if self.weapon_state.is_active(WeaponKind::Ames) {
+            0.5
         } else {
             0.0
         };
@@ -660,14 +669,12 @@ impl GameState {
             score: sv,
             opponent_board: None, // filled in by game_loop
             player_active_weapons,
-            ernie_active_weapons: vec![],
+            opponent_active_weapons: vec![],
             player_arsenal,
-            ernie_arsenal_count: 0,
+            opponent_arsenal_count: 0,
             upbyside_active: self.weapon_state.is_active(WeaponKind::Upbyside),
             blind_cells: self.weapon_state.blind_cells.clone(),
             twilight_active: self.weapon_state.is_active(WeaponKind::Twilight),
-            gimp_flash: self.gimp_flash_ms > 0,
-            opponent_gimp_flash: self.opponent_gimp_flash_ms > 0,
             slick_active: self.weapon_state.slick_dir != 0,
             show_opponent_funds: spy_active,
             opponent_board_accuracy: accuracy,
@@ -782,7 +789,7 @@ mod tests {
     fn soft_drop_uses_fast_interval() {
         let mut gs = playing_state();
         let y0 = gs.active_piece.as_ref().unwrap().y;
-        gs.tick(Some(PlayerInput::SoftDrop), 10);
+        gs.tick(Some(PlayerInput::SoftDrop), SOFT_DROP_INTERVAL_MS);
         let y1 = gs.active_piece.as_ref().unwrap().y;
         assert!(y1 > y0);
     }

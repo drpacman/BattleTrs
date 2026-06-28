@@ -1,3 +1,4 @@
+use battletris_engine::ai::LEVELS;
 use battletris_renderer::{Color, DrawContext};
 use battletris_renderer::font::{draw_text, text_w};
 use battletris_renderer::layout::{WINDOW_H, WINDOW_W};
@@ -44,4 +45,63 @@ pub fn draw_title(r: &mut Renderer) {
 
     let cred = "ORIGINAL BATTLETRIS (1994)  BROWN UNIV CS32";
     draw_text(&mut ctx, cred, cx - text_w(cred, 1.0) / 2.0, 760.0, Color::rgb(80, 80, 80), 1.0);
+}
+
+pub fn draw_difficulty_select(r: &mut Renderer, selected: usize) {
+    let mut ctx = r.backend();
+    let cx = WINDOW_W / 2.0;
+
+    ctx.fill_rect(0.0, 0.0, WINDOW_W, WINDOW_H, Color::rgb(20, 0, 40));
+    ctx.fill_rect(0.0, 130.0, WINDOW_W, 70.0, Color::rgb(50, 0, 100));
+
+    let title = "VS COMPUTER";
+    draw_text(&mut ctx, title, cx - text_w(title, 4.0) / 2.0, 145.0, Color::rgb(255, 220, 0), 4.0);
+
+    let sub = "SELECT DIFFICULTY";
+    draw_text(&mut ctx, sub, cx - text_w(sub, 2.0) / 2.0, 215.0, Color::rgb(180, 180, 180), 2.0);
+
+    const ROW_H: f64 = 36.0;
+    const LIST_X: f64 = 220.0;
+    const LIST_W: f64 = 380.0;
+    let list_y = 250.0;
+
+    // Panel behind the list
+    ctx.fill_rect(LIST_X - 10.0, list_y - 6.0, LIST_W + 20.0, ROW_H * LEVELS.len() as f64 + 12.0,
+        Color::rgb(15, 0, 30));
+    ctx.stroke_rect(LIST_X - 10.0, list_y - 6.0, LIST_W + 20.0, ROW_H * LEVELS.len() as f64 + 12.0,
+        Color::rgb(80, 0, 140));
+
+    for (i, &(name, ms)) in LEVELS.iter().enumerate() {
+        let row_y = list_y + i as f64 * ROW_H;
+        let is_sel = i == selected;
+
+        if is_sel {
+            ctx.fill_rect(LIST_X - 8.0, row_y - 2.0, LIST_W + 16.0, ROW_H - 2.0,
+                Color::rgb(80, 0, 150));
+        }
+
+        // Cursor arrow
+        let arrow = if is_sel { ">" } else { " " };
+        let arrow_col = if is_sel { Color::rgb(255, 220, 0) } else { Color::rgb(60, 0, 80) };
+        draw_text(&mut ctx, arrow, LIST_X, row_y + 6.0, arrow_col, 2.0);
+
+        // Level name
+        let name_col = if is_sel { Color::WHITE } else { Color::rgb(160, 140, 180) };
+        draw_text(&mut ctx, name, LIST_X + 24.0, row_y + 6.0, name_col, 2.0);
+
+        // Think delay on the right
+        let delay_str = if ms == 0 {
+            "instant".to_string()
+        } else {
+            format!("{ms}ms")
+        };
+        let delay_col = if is_sel { Color::rgb(200, 200, 255) } else { Color::rgb(100, 80, 120) };
+        let delay_x = LIST_X + LIST_W - text_w(&delay_str, 2.0) - 8.0;
+        draw_text(&mut ctx, &delay_str, delay_x, row_y + 6.0, delay_col, 2.0);
+    }
+
+    let hint = "UP/DOWN - select    ENTER - start    ESC - back";
+    draw_text(&mut ctx, hint, cx - text_w(hint, 1.0) / 2.0,
+        list_y + LEVELS.len() as f64 * ROW_H + 24.0,
+        Color::rgb(100, 80, 120), 1.0);
 }

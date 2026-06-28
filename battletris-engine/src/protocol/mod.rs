@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::engine::board::BoardSnapshot;
-use crate::engine::weapons::WeaponKind;
+use crate::engine::weapons::{Arsenal, WeaponKind};
 
 /// Network + inter-thread message protocol.
 ///
@@ -30,7 +30,7 @@ pub enum GameMessage {
     /// Client → Server: player intentionally quit mid-game.
     /// Server forwards to the peer then ends the session cleanly.
     PlayerQuit,
-    /// Signals Ernie to reset its game state for a new match.
+    /// Signals the opponent to reset its game state for a new match.
     NewGame,
 
     // ── Game state sync ─────────────────────────────────────────────────────
@@ -45,14 +45,15 @@ pub enum GameMessage {
     WeaponReflected { kind: WeaponKind },
     /// Keating: funds were stolen — add this amount to the recipient's funds.
     FundsReceived { amount: i64 },
-    /// Arsenal swapped (Susan weapon).
-    ArsenalSwapped,
+    /// Arsenal swap handshake (Susan weapon).
+    /// Firer sends their arsenal; receiver replies with their own; each takes the other's.
+    ArsenalSwapped { arsenal: Arsenal },
 
     // ── Bazaar ──────────────────────────────────────────────────────────────
     BazaarEnd,
 
     // ── Game result ──────────────────────────────────────────────────────────
-    /// Game over. In Ernie games winner_name is empty and ELO deltas are 0.
+    /// Game over. In vs-computer games winner_name is empty and ELO deltas are 0.
     GameOver {
         winner_id: u32,
         final_score_p1: u32,

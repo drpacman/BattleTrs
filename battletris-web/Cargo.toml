@@ -14,6 +14,7 @@ web-sys = { version = "0.3", features = [
     "WebSocket", "MessageEvent", "CloseEvent", "BinaryType",
     "KeyboardEvent", "UiEvent", "Event", "EventTarget",
     "Location",
+    "ImageData",
 ] }
 battletris-engine = { path = "../battletris-engine" }
 battletris-renderer = { path = "../battletris-renderer" }
@@ -21,4 +22,5 @@ bincode = { workspace = true }
 serde = { workspace = true }
 console_error_panic_hook = "0.1"
 rand = { workspace = true }
+png = { workspace = true }
 

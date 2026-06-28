@@ -3,7 +3,8 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 
 use crate::engine::board::{BoardSnapshot, Cell};
-use crate::engine::game_state::{GameEvent, GamePhase, GameState, PlayerInput};
+use crate::engine::game_state::{GameEvent, GameMode, GamePhase, GameState, PlayerInput};
+use crate::engine::weapons::{WeaponKind, check_mirror, MirrorResult};
 use crate::protocol::GameMessage;
 
 /// Shared state for a networked (or vs-computer) game session.
@@ -24,6 +25,9 @@ pub struct NetworkSession {
     pub did_send_game_over: bool,
     pub player_name: Option<String>,
     pub opponent_name: Option<String>,
+    /// True after we fire Susan — the next ArsenalSwapped we receive is the
+    /// peer's reply carrying their arsenal (not a fresh Susan aimed at us).
+    pending_susan_reply: bool,
 }
 
 impl NetworkSession {
@@ -36,6 +40,7 @@ impl NetworkSession {
             did_send_game_over: false,
             player_name,
             opponent_name: None,
+            pending_susan_reply: false,
         }
     }
 
@@ -45,6 +50,7 @@ impl NetworkSession {
         self.peer_disconnected = false;
         self.network_result = None;
         self.did_send_game_over = false;
+        self.pending_susan_reply = false;
     }
 
     /// Process one incoming peer `GameMessage`, mutating session state.
@@ -66,7 +72,17 @@ impl NetworkSession {
 
             GameMessage::BazaarOpen => {
                 self.state.open_bazaar_now();
-                self.state.ernie_bazaar_done();
+                // VsComputer: the opponent finishes shopping first, then sends BazaarOpen —
+                // mark opponent_done immediately so the local player can exit at will.
+                // VsNetwork: server sends BazaarOpen to both players simultaneously —
+                // opponent_done stays false until BazaarEnd arrives from the peer.
+                if self.state.mode != GameMode::VsNetwork {
+                    self.state.bazaar_done();
+                }
+            }
+
+            GameMessage::BazaarEnd => {
+                self.state.bazaar_done();
             }
 
             GameMessage::PeerDisconnected => {
@@ -90,11 +106,28 @@ impl NetworkSession {
             }
 
             GameMessage::WeaponLaunched { kind } => {
-                let mut rng = StdRng::from_entropy();
-                let events = self.state.apply_incoming_weapon(kind, &mut rng);
-                for ev in &events {
-                    if let GameEvent::WeaponFired { kind: k, reflect: true } = ev {
-                        replies.push(GameMessage::WeaponReflected { kind: *k });
+                if kind == WeaponKind::Swap {
+                    // Swap exchanges boards — needs both players' state, so apply_incoming_weapon
+                    // can't handle it. We use our last peer_board snapshot instead.
+                    let mirror = check_mirror(kind, &self.state.weapon_state);
+                    if mirror == MirrorResult::PassThrough {
+                        let snap = self.peer_board.clone();
+                        if let Some(snap) = snap {
+                            self.state.apply_swap_board(&snap);
+                            replies.push(GameMessage::BoardUpdate {
+                                snapshot: self.state.board.snapshot(),
+                            });
+                        }
+                    }
+                    // Mirror::Nullified → do nothing (Swap is in Mirror's nullified list,
+                    // so it can never be reflected back).
+                } else {
+                    let mut rng = StdRng::from_entropy();
+                    let events = self.state.apply_incoming_weapon(kind, &mut rng);
+                    for ev in &events {
+                        if let GameEvent::WeaponFired { kind: k, reflect: true } = ev {
+                            replies.push(GameMessage::WeaponReflected { kind: *k });
+                        }
                     }
                 }
             }
@@ -102,6 +135,44 @@ impl NetworkSession {
             GameMessage::WeaponReflected { kind } => {
                 let mut rng = StdRng::from_entropy();
                 self.state.apply_incoming_weapon(kind, &mut rng);
+            }
+
+            GameMessage::LinesCleared { count, .. } => {
+                // Keep the combined-line counter in sync so the bazaar trigger
+                // fires based on both players' lines (matching the original game).
+                self.state.score.add_op_lines(count);
+
+                // Lawyers' Delite: each line the opponent (attacker) clears
+                // adds a junk row to this player's (victim's) board.
+                if self.state.weapon_state.is_active(WeaponKind::Lawyers) {
+                    let mut rng = StdRng::from_entropy();
+                    for _ in 0..count {
+                        if self.state.board.rise_up(&mut rng) {
+                            self.state.phase = GamePhase::GameOver { won: false };
+                            break;
+                        }
+                    }
+                }
+            }
+
+            GameMessage::ArsenalSwapped { arsenal } => {
+                if self.pending_susan_reply {
+                    // Reply to our own Susan — take the peer's arsenal.
+                    self.state.arsenal = arsenal;
+                    self.pending_susan_reply = false;
+                } else {
+                    // Incoming Susan from peer — swap and reply.
+                    // Mirror::Nullified: echo the payload back so the firer's pending
+                    //   reply resolves to their own arsenal (net zero change).
+                    let my_old = if check_mirror(WeaponKind::Susan, &self.state.weapon_state)
+                        == MirrorResult::PassThrough
+                    {
+                        std::mem::replace(&mut self.state.arsenal, arsenal)
+                    } else {
+                        arsenal // mirrored: return unchanged, own arsenal untouched
+                    };
+                    replies.push(GameMessage::ArsenalSwapped { arsenal: my_old });
+                }
             }
 
             GameMessage::FundsReceived { amount } => {
@@ -136,9 +207,47 @@ impl NetworkSession {
 
         let events = self.state.tick(input, elapsed_ms);
 
+        let mut outgoing = events_to_outgoing(&events, &self.state);
+
+        // Susan weapon: replace WeaponLaunched with an ArsenalSwapped handshake.
+        // WeaponLaunched carries no payload; the round-trip via ArsenalSwapped is the
+        // only way to exchange arsenals without a continuously-synced peer_arsenal field.
+        outgoing.retain(|m| !matches!(m, GameMessage::WeaponLaunched { kind: WeaponKind::Susan }));
+        for ev in &events {
+            if let GameEvent::WeaponFired { kind: WeaponKind::Susan, reflect: false } = ev {
+                self.pending_susan_reply = true;
+                outgoing.push(GameMessage::ArsenalSwapped {
+                    arsenal: self.state.arsenal.clone(),
+                });
+            }
+        }
+
+        // Swap weapon: firer's board also becomes what the peer had.
+        // Both sides independently swap with their own peer_board snapshot so the exchange
+        // happens without a round-trip.  A BoardUpdate is appended so the peer immediately
+        // learns the firer's new (formerly-peer) board state.
+        for ev in &events {
+            if let GameEvent::WeaponFired { kind: WeaponKind::Swap, reflect: false } = ev {
+                let snap = self.peer_board.clone();
+                if let Some(snap) = snap {
+                    self.state.apply_swap_board(&snap);
+                }
+                outgoing.push(GameMessage::BoardUpdate { snapshot: self.state.board.snapshot() });
+            }
+        }
+
+        // Computed after Swap (which can top-out and set GameOver).
         let now_loss = matches!(self.state.phase, GamePhase::GameOver { won: false });
 
-        let mut outgoing = events_to_outgoing(&events, &self.state);
+        // Notify peer when we press Done in the bazaar.
+        // Using the event (not a before/after state snapshot) because the bazaar may
+        // close immediately when opponent_done was already true — making bazaar None and
+        // causing a snapshot of player_done to read false from the missing struct.
+        if self.state.mode != GameMode::SinglePlayer
+            && events.iter().any(|e| matches!(e, GameEvent::BazaarPlayerDone))
+        {
+            outgoing.push(GameMessage::BazaarEnd);
+        }
 
         if was_playing {
             outgoing.push(GameMessage::ScoreUpdate {

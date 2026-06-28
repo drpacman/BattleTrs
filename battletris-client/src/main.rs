@@ -19,9 +19,10 @@ use net::{ConnectError, NetChannels};
 use battletris_renderer::bazaar::draw_bazaar;
 use battletris_renderer::game_over::draw_game_over;
 use battletris_renderer::playing::{draw_playing, draw_quit_confirm};
+use battletris_engine::ai::LEVELS;
 use renderer::{
     lobby::{draw_connection_screen, draw_connecting_screen, draw_waiting_screen},
-    title::draw_title,
+    title::{draw_difficulty_select, draw_title},
     Renderer,
 };
 
@@ -29,6 +30,9 @@ use renderer::{
 
 enum AppState {
     TitleMenu,
+    DifficultySelect {
+        selected: usize,
+    },
     ConnectionScreen {
         addr_buf: String,
         name_buf: String,
@@ -104,9 +108,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         AppState::TitleMenu => {
                             match sc {
                                 Scancode::Return | Scancode::KpEnter => {
-                                    app = start_ernie_game();
-                                    in_game = false;
-                                    last_playing = None;
+                                    // Default to "Focused" (index 6 = 750ms)
+                                    app = AppState::DifficultySelect { selected: 6 };
                                 }
                                 Scancode::S => {
                                     app = start_single_player_game();
@@ -122,6 +125,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         cursor_blink: true,
                                         blink_timer: Instant::now(),
                                     };
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        AppState::DifficultySelect { selected } => {
+                            match sc {
+                                Scancode::Up => {
+                                    if *selected > 0 { *selected -= 1; }
+                                }
+                                Scancode::Down => {
+                                    if *selected < LEVELS.len() - 1 { *selected += 1; }
+                                }
+                                Scancode::Return | Scancode::KpEnter => {
+                                    let difficulty = *selected as u8;
+                                    app = start_ernie_game(difficulty);
+                                    in_game = false;
+                                    last_playing = None;
+                                }
+                                Scancode::Escape => {
+                                    app = AppState::TitleMenu;
                                 }
                                 _ => {}
                             }
@@ -227,20 +251,22 @@ fn start_single_player_game() -> AppState {
     AppState::InGame { input_tx, render_rx }
 }
 
-fn start_ernie_game() -> AppState {
+fn start_ernie_game(difficulty: u8) -> AppState {
     let (input_tx, input_rx) = mpsc::channel::<PlayerInput>();
     let (render_tx, render_rx) = mpsc::sync_channel::<RenderEvent>(2);
 
     let (to_ernie_tx, to_ernie_rx) = mpsc::sync_channel::<GameMessage>(32);
     let (from_ernie_tx, from_ernie_rx) = mpsc::sync_channel::<GameMessage>(32);
     let ernie_seed = rand::random::<u64>();
-    thread::spawn(move || ernie::run_ernie(to_ernie_rx, from_ernie_tx, ernie_seed));
+    thread::spawn(move || ernie::run_ernie(to_ernie_rx, from_ernie_tx, ernie_seed, difficulty));
 
+    let (_, level_name) = LEVELS[difficulty as usize];
+    let opponent_name = format!("Ernie ({})", level_name);
     let peer = Some(PeerChannels {
         from_peer: from_ernie_rx,
         to_peer: to_ernie_tx,
     });
-    thread::spawn(move || run_game_loop(input_rx, render_tx, peer, None, Some("Ernie".to_string())));
+    thread::spawn(move || run_game_loop(input_rx, render_tx, peer, None, Some(opponent_name)));
 
     AppState::InGame { input_tx, render_rx }
 }
@@ -414,6 +440,8 @@ fn render_frame(
 
     match app {
         AppState::TitleMenu => draw_title(renderer),
+
+        AppState::DifficultySelect { selected } => draw_difficulty_select(renderer, *selected),
 
         AppState::ConnectionScreen { addr_buf, name_buf, active_field, error, cursor_blink, .. } => {
             draw_connection_screen(renderer, addr_buf, name_buf, *active_field, *cursor_blink, error.as_deref());
