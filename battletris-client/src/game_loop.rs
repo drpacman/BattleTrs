@@ -5,9 +5,8 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use battletris_engine::engine::game_state::{GameMode, GamePhase, PlayerInput, PlayingView};
-use battletris_engine::engine::weapons::WeaponKind;
 use battletris_engine::protocol::GameMessage;
-use battletris_engine::session::{apply_board_visibility, NetworkSession};
+use battletris_engine::session::NetworkSession;
 
 pub enum RenderEvent {
     Title,
@@ -63,50 +62,33 @@ pub fn run_game_loop(
         let elapsed_ms = now.duration_since(last_tick).as_millis() as u32;
         last_tick = now;
 
-        // ── Process peer messages ─────────────────────────────────────────
-        if let Some(ref ch) = peer {
-            while let Ok(msg) = ch.from_peer.try_recv() {
-                if matches!(msg, GameMessage::PlayerQuit) {
-                    session.state.phase = GamePhase::Title;
-                } else if session.state.mode == GameMode::VsComputer
-                    && matches!(msg, GameMessage::GameOver { .. })
-                    && matches!(session.state.phase, GamePhase::Playing | GamePhase::InBazaar)
-                {
-                    // Ernie sent GameOver while player is still alive — player won.
-                    session.state.phase = GamePhase::GameOver { won: true };
-                } else {
-                    let replies = session.process_message(msg);
-                    for r in replies {
-                        let _ = ch.to_peer.try_send(r);
-                    }
-                }
-            }
-        }
-
-        // ── Tick and forward events ───────────────────────────────────────
+        // ── Process messages, tick, forward outgoing ─────────────────────
         let was_pre_game = matches!(session.state.phase, GamePhase::Title | GamePhase::GameOver { .. });
 
-        let (_, outgoing) = session.tick(input, elapsed_ms);
-
-        if let Some(ref ch) = peer {
-            let mut rng = StdRng::from_entropy();
-            for msg in outgoing {
-                if let GameMessage::WeaponLaunched { kind } = msg {
-                    // Spy weapons enhance the firer's own board visibility — they must
-                    // be applied locally and must NOT be forwarded to the opponent.
-                    if matches!(kind, WeaponKind::Ace | WeaponKind::Ames | WeaponKind::Condor) {
-                        session.state.apply_incoming_weapon(kind, &mut rng);
-                        continue;
-                    }
-                }
-                let _ = ch.to_peer.try_send(msg);
+        let peer_msgs: Vec<GameMessage> = match &peer {
+            Some(ch) => {
+                let mut msgs = Vec::new();
+                while let Ok(msg) = ch.from_peer.try_recv() { msgs.push(msg); }
+                msgs
             }
-        } else {
-            // Solo practice: weapons loop back to self so effects are visible.
-            let mut rng = StdRng::from_entropy();
-            for msg in outgoing {
-                if let GameMessage::WeaponLaunched { kind } = msg {
-                    session.state.apply_incoming_weapon(kind, &mut rng);
+            None => Vec::new(),
+        };
+
+        let (to_send, _) = session.advance_frame(peer_msgs, input, elapsed_ms);
+
+        match &peer {
+            Some(ch) => {
+                for msg in to_send {
+                    let _ = ch.to_peer.try_send(msg);
+                }
+            }
+            None => {
+                // Solo practice: loop outgoing weapons back to self.
+                let mut rng = StdRng::from_entropy();
+                for msg in to_send {
+                    if let GameMessage::WeaponLaunched { kind } = msg {
+                        session.state.apply_incoming_weapon(kind, &mut rng);
+                    }
                 }
             }
         }
@@ -124,15 +106,7 @@ pub fn run_game_loop(
             GamePhase::Title => Some(RenderEvent::Title),
 
             GamePhase::Playing | GamePhase::InBazaar => {
-                let mut view = session.state.to_playing_view();
-                view.opponent_board = apply_board_visibility(
-                    &session.peer_board,
-                    view.opponent_board_accuracy,
-                );
-                view.peer_disconnected = session.peer_disconnected;
-                view.opponent_name = session.opponent_name.clone();
-                view.player_name = session.player_name.clone();
-                Some(RenderEvent::Playing(view))
+                Some(RenderEvent::Playing(session.playing_view()))
             }
 
             GamePhase::GameOver { won } => {

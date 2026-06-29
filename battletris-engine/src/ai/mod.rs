@@ -27,6 +27,9 @@ pub const LEVELS: &[(&str, u64)] = &[
     ("Bionic",          0),
 ];
 
+/// Default starting difficulty index ("Focused", 750 ms think interval).
+pub const DEFAULT_DIFFICULTY: usize = 6;
+
 /// Return the think-interval milliseconds for a given 0-based difficulty index.
 pub fn difficulty_think_ms(level: u8) -> u64 {
     let idx = (level as usize).min(LEVELS.len() - 1);

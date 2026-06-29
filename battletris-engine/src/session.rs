@@ -3,7 +3,7 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 
 use crate::engine::board::{BoardSnapshot, Cell};
-use crate::engine::game_state::{GameEvent, GameMode, GamePhase, GameState, PlayerInput};
+use crate::engine::game_state::{GameEvent, GameMode, GamePhase, GameState, PlayerInput, PlayingView};
 use crate::engine::weapons::{WeaponKind, check_mirror, MirrorResult};
 use crate::protocol::GameMessage;
 
@@ -42,6 +42,16 @@ impl NetworkSession {
             opponent_name: None,
             pending_susan_reply: false,
         }
+    }
+
+    /// Build a `PlayingView` with fog-of-war and peer metadata applied.
+    pub fn playing_view(&self) -> PlayingView {
+        let mut view = self.state.to_playing_view();
+        view.opponent_board = apply_board_visibility(&self.peer_board, view.opponent_board_accuracy);
+        view.peer_disconnected = self.peer_disconnected;
+        view.opponent_name = self.opponent_name.clone();
+        view.player_name = self.player_name.clone();
+        view
     }
 
     /// Reset per-round peer state when a new game begins (vs-computer rematch).
@@ -180,12 +190,24 @@ impl NetworkSession {
             }
 
             GameMessage::GameOver { winner_name, elo_delta_winner, elo_delta_loser, .. } => {
-                let i_won = self.player_name.as_deref()
-                    .map(|n| n == winner_name)
-                    .unwrap_or(false);
-                let my_delta = if i_won { elo_delta_winner } else { elo_delta_loser };
-                self.network_result = Some((i_won, winner_name, my_delta));
-                self.state.phase = GamePhase::GameOver { won: i_won };
+                if self.state.mode == GameMode::VsComputer {
+                    // Ernie sends GameOver to signal its own defeat; if we are still
+                    // playing, we won.
+                    if matches!(self.state.phase, GamePhase::Playing | GamePhase::InBazaar) {
+                        self.state.phase = GamePhase::GameOver { won: true };
+                    }
+                } else {
+                    let i_won = self.player_name.as_deref()
+                        .map(|n| n == winner_name)
+                        .unwrap_or(false);
+                    let my_delta = if i_won { elo_delta_winner } else { elo_delta_loser };
+                    self.network_result = Some((i_won, winner_name, my_delta));
+                    self.state.phase = GamePhase::GameOver { won: i_won };
+                }
+            }
+
+            GameMessage::PlayerQuit => {
+                self.state.phase = GamePhase::Title;
             }
 
             _ => {}
@@ -270,7 +292,48 @@ impl NetworkSession {
             });
         }
 
+        // Spy weapons (Ace, Ames, Condor): the firer gains board visibility
+        // immediately; the message must NOT be forwarded to the peer.
+        let outgoing = {
+            let mut filtered = Vec::with_capacity(outgoing.len());
+            for msg in outgoing {
+                if let GameMessage::WeaponLaunched { kind } = msg {
+                    if matches!(kind, WeaponKind::Ace | WeaponKind::Ames | WeaponKind::Condor) {
+                        let mut rng = StdRng::from_entropy();
+                        self.state.apply_incoming_weapon(kind, &mut rng);
+                        continue;
+                    }
+                }
+                filtered.push(msg);
+            }
+            filtered
+        };
+
         (events, outgoing)
+    }
+
+    /// Single entry-point for one game frame on both native and WASM.
+    ///
+    /// Processes `peer_messages` through `process_message`, ticks the engine
+    /// with `input` and `elapsed_ms`, and returns all messages that should be
+    /// forwarded to the peer plus the raw engine events.
+    ///
+    /// Platform-specific messages (connection handshake, navigation signals)
+    /// should be consumed by the caller before passing the remainder here.
+    pub fn advance_frame(
+        &mut self,
+        peer_messages: impl IntoIterator<Item = GameMessage>,
+        input: Option<PlayerInput>,
+        elapsed_ms: u32,
+    ) -> (Vec<GameMessage>, Vec<GameEvent>) {
+        let mut to_peer = Vec::new();
+        for msg in peer_messages {
+            let replies = self.process_message(msg);
+            to_peer.extend(replies);
+        }
+        let (events, outgoing) = self.tick(input, elapsed_ms);
+        to_peer.extend(outgoing);
+        (to_peer, events)
     }
 }
 

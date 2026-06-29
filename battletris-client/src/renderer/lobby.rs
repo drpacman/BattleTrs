@@ -1,8 +1,13 @@
+use battletris_renderer::screens::{
+    draw_connecting as renderer_draw_connecting,
+    draw_waiting as renderer_draw_waiting,
+};
 use battletris_renderer::{Color, DrawContext};
 use battletris_renderer::font::{draw_text, text_w};
 use battletris_renderer::layout::{WINDOW_H, WINDOW_W};
+use battletris_renderer::widgets::draw_input_field;
 
-use super::{Renderer, SdlBackend};
+use super::Renderer;
 
 const PANEL_W: f64 = 500.0;
 const PANEL_H: f64 = 260.0;
@@ -46,52 +51,10 @@ pub fn draw_connection_screen(
     }
 }
 
-fn draw_input_field(ctx: &mut SdlBackend, x: f64, y: f64, w: f64, text: &str, active: bool, cursor_visible: bool) {
-    let h = 40.0;
-    let bg = if active { Color::rgb(35, 35, 70) } else { Color::rgb(20, 20, 40) };
-    ctx.fill_rect(x, y, w, h, bg);
-
-    let border = if active { Color::rgb(100, 100, 220) } else { Color::rgb(60, 60, 100) };
-    ctx.stroke_rect(x, y, w, h, border);
-
-    let display = if text.len() > 40 { &text[text.len() - 40..] } else { text };
-    draw_text(ctx, display, x + 6.0, y + 10.0, Color::rgb(220, 220, 220), 2.0);
-
-    if active && cursor_visible {
-        let cursor_x = x + 6.0 + text_w(display, 2.0);
-        ctx.fill_rect(cursor_x, y + 8.0, 2.0, 24.0, Color::rgb(200, 200, 200));
-    }
-}
-
 pub fn draw_connecting_screen(r: &mut Renderer, addr: &str) {
-    let mut ctx = r.backend();
-    let cx = WINDOW_W / 2.0;
-    let cy = WINDOW_H / 2.0;
-
-    ctx.fill_rect(0.0, 0.0, WINDOW_W, WINDOW_H, Color::rgb(10, 10, 30));
-
-    let t1 = "CONNECTING...";
-    draw_text(&mut ctx, t1, cx - text_w(t1, 4.0) / 2.0, cy - 60.0, Color::rgb(255, 220, 0), 4.0);
-    draw_text(&mut ctx, addr, cx - text_w(addr, 2.0) / 2.0, cy + 10.0, Color::rgb(160, 160, 160), 2.0);
-
-    let hint = "ESC - cancel";
-    draw_text(&mut ctx, hint, cx - text_w(hint, 2.0) / 2.0, cy + 60.0, Color::rgb(80, 80, 80), 2.0);
+    renderer_draw_connecting(&mut r.backend(), addr);
 }
 
 pub fn draw_waiting_screen(r: &mut Renderer, player_name: &str) {
-    let mut ctx = r.backend();
-    let cx = WINDOW_W / 2.0;
-    let cy = WINDOW_H / 2.0;
-
-    ctx.fill_rect(0.0, 0.0, WINDOW_W, WINDOW_H, Color::rgb(10, 10, 30));
-
-    let t1 = "WAITING FOR OPPONENT";
-    draw_text(&mut ctx, t1, cx - text_w(t1, 3.0) / 2.0, cy - 80.0, Color::rgb(255, 220, 0), 3.0);
-
-    let name_str = format!("Playing as: {player_name}");
-    draw_text(&mut ctx, &name_str, cx - text_w(&name_str, 2.0) / 2.0, cy - 20.0,
-        Color::rgb(160, 160, 160), 2.0);
-
-    let hint = "ESC - cancel";
-    draw_text(&mut ctx, hint, cx - text_w(hint, 2.0) / 2.0, cy + 60.0, Color::rgb(80, 80, 80), 2.0);
+    renderer_draw_waiting(&mut r.backend(), player_name);
 }

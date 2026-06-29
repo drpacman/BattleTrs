@@ -10,7 +10,6 @@ use crate::engine::weapons::{
     weapon_def, apply_weapon_instant, apply_weapon_timed, check_mirror,
     MirrorResult, WEAPON_COUNT,
 };
-use crate::protocol::GameMessage;
 
 // Timing constants (milliseconds) — from BTConstants.H
 pub const DROP_INTERVAL_MS: u32 = 512;
@@ -23,7 +22,7 @@ pub const HATTER_INTERVAL_MS: u32 = 20; // BT_HATTER_TIMEOUT = 20ms (original)
 pub const SPAWN_X: i32 = 5;
 pub const SPAWN_Y: i32 = 0;
 pub const HAPPY_FUND_VALUE: i32 = 150;
-pub const LINES_UNTIL_BAZAAR: u32 = 4;
+pub const LINES_UNTIL_BAZAAR: u32 = 20;
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -201,9 +200,9 @@ impl GameState {
     pub fn start_game(&mut self, events: &mut Vec<GameEvent>) {
         self.board = Board::new();
         self.score = Score::default();
-        // if self.mode == GameMode::SinglePlayer {
+        if self.mode == GameMode::SinglePlayer {
             self.score.funds = 10_000;
-        // }
+        }
         self.weapon_state = WeaponState::new();
         self.arsenal = Arsenal::new();
         self.bazaar = None;
@@ -587,11 +586,6 @@ impl GameState {
             piece.rotation = rotation;
         }
         self.tick(Some(PlayerInput::HardDrop), FAST_DROP_INTERVAL_MS)
-    }
-
-    /// Apply an incoming network message (stub — implemented in Unit 3).
-    pub fn apply_network_message(&mut self, _msg: GameMessage) -> Vec<GameEvent> {
-        vec![]
     }
 
     /// Build a renderer snapshot.

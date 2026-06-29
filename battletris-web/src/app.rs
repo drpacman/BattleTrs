@@ -1,13 +1,17 @@
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 
+use battletris_engine::ai::{DEFAULT_DIFFICULTY, LEVELS};
+use battletris_engine::ernie::ErnieSession;
 use battletris_engine::engine::game_state::{GameMode, GamePhase, PlayerInput};
-use battletris_engine::engine::weapons::WeaponKind;
 use battletris_engine::protocol::GameMessage;
-use battletris_engine::session::{apply_board_visibility, NetworkSession};
+use battletris_engine::session::NetworkSession;
 
 use battletris_renderer::bazaar::draw_bazaar;
 use battletris_renderer::game_over::draw_game_over;
 use battletris_renderer::playing::{draw_playing, draw_quit_confirm};
+use battletris_renderer::screens::validate_player_name;
+use battletris_renderer::title::{draw_difficulty_select, draw_title};
 
 use crate::input::InputHandler;
 use crate::renderer::CanvasRenderer;
@@ -16,9 +20,21 @@ use crate::renderer::screens::{
 };
 use crate::transport::WsTransport;
 
+// ─── Peer ─────────────────────────────────────────────────────────────────────
+
+enum Peer {
+    Network(WsTransport),
+    /// Computer opponent. `to_ernie` buffers this frame's session outgoing for
+    /// Ernie to process next frame (one-frame lag, imperceptible at 60 fps).
+    Computer { ernie: ErnieSession, to_ernie: Vec<GameMessage> },
+    Solo,
+}
+
 // ─── Phase state machine ──────────────────────────────────────────────────────
 
 enum Phase {
+    Title,
+    DifficultySelect { selected: usize },
     Lobby {
         name_buf: String,
         error: Option<String>,
@@ -34,7 +50,7 @@ enum Phase {
     },
     InGame {
         session: NetworkSession,
-        transport: WsTransport,
+        peer: Peer,
         sub: InGameSub,
     },
 }
@@ -65,10 +81,7 @@ impl WasmApp {
         Ok(Self {
             renderer,
             input,
-            phase: Some(Phase::Lobby {
-                name_buf: String::new(),
-                error: None,
-            }),
+            phase: Some(Phase::Title),
             last_ts: 0.0,
         })
     }
@@ -84,7 +97,6 @@ impl WasmApp {
         let text_keys = self.input.drain_text();
         let code_keys = self.input.drain();
 
-        // Take the phase out so we can mutate self freely inside `advance`.
         let phase = self.phase.take().unwrap();
         self.phase = Some(Self::advance(phase, elapsed_ms, &text_keys, &code_keys));
 
@@ -100,6 +112,35 @@ impl WasmApp {
         code_keys: &[String],
     ) -> Phase {
         match phase {
+            // ── Title ─────────────────────────────────────────────────────────
+            Phase::Title => {
+                for key in code_keys {
+                    match key.as_str() {
+                        "Enter" | "NumpadEnter" => {
+                            return Phase::DifficultySelect { selected: DEFAULT_DIFFICULTY };
+                        }
+                        "KeyS" => return start_solo_game(),
+                        "KeyN" => return Phase::Lobby { name_buf: String::new(), error: None },
+                        _ => {}
+                    }
+                }
+                Phase::Title
+            }
+
+            // ── DifficultySelect ──────────────────────────────────────────────
+            Phase::DifficultySelect { mut selected } => {
+                for key in code_keys {
+                    match key.as_str() {
+                        "ArrowUp" => { if selected > 0 { selected -= 1; } }
+                        "ArrowDown" => { if selected + 1 < LEVELS.len() { selected += 1; } }
+                        "Enter" | "NumpadEnter" => return start_ernie_game(selected as u8),
+                        "Escape" => return Phase::Title,
+                        _ => {}
+                    }
+                }
+                Phase::DifficultySelect { selected }
+            }
+
             // ── Lobby ─────────────────────────────────────────────────────────
             Phase::Lobby { mut name_buf, mut error } => {
                 for key in text_keys {
@@ -107,10 +148,8 @@ impl WasmApp {
                         "Backspace" => { name_buf.pop(); error = None; }
                         "Enter" => {
                             let name = name_buf.trim().to_string();
-                            if name.is_empty() {
-                                error = Some("NAME CANNOT BE EMPTY".into());
-                            } else if name.len() > 16 {
-                                error = Some("NAME TOO LONG (MAX 16 CHARS)".into());
+                            if let Some(e) = validate_player_name(&name) {
+                                error = Some(e.into());
                             } else {
                                 let addr = ws_url_from_location();
                                 match WsTransport::connect(&addr, &name) {
@@ -134,15 +173,14 @@ impl WasmApp {
                         _ => {}
                     }
                 }
+                for key in code_keys {
+                    if key == "Escape" { return Phase::Title; }
+                }
                 Phase::Lobby { name_buf, error }
             }
 
             // ── Connecting ────────────────────────────────────────────────────
             Phase::Connecting { transport, player_name, addr_display } => {
-                // Drain messages before inspecting connection state. On a fast
-                // server, Hello → GameStart (or NameTaken + close) can all arrive
-                // between two rAF frames, so we must process the queue first or
-                // the disconnect check fires before we see the real outcome.
                 for msg in transport.drain_incoming() {
                     match msg {
                         GameMessage::NameTaken => {
@@ -152,7 +190,7 @@ impl WasmApp {
                             };
                         }
                         GameMessage::GameStart { opponent_name } => {
-                            return start_game(transport, player_name, opponent_name);
+                            return start_network_game(transport, player_name, opponent_name);
                         }
                         _ => {}
                     }
@@ -174,7 +212,9 @@ impl WasmApp {
                 let mut name_taken = false;
                 for msg in transport.drain_incoming() {
                     match msg {
-                        GameMessage::GameStart { opponent_name } => { return start_game(transport, player_name, opponent_name); }
+                        GameMessage::GameStart { opponent_name } => {
+                            return start_network_game(transport, player_name, opponent_name);
+                        }
                         GameMessage::NameTaken => { name_taken = true; }
                         _ => {}
                     }
@@ -191,86 +231,79 @@ impl WasmApp {
                         error: Some("CONNECTION FAILED".into()),
                     };
                 }
+                for key in code_keys {
+                    if key == "Escape" {
+                        return Phase::Title;
+                    }
+                }
                 Phase::WaitingForOpponent { transport, player_name }
             }
 
             // ── InGame ────────────────────────────────────────────────────────
-            Phase::InGame { mut session, transport, mut sub } => {
-                // Drain messages before checking disconnect state: PlayerQuit (and
-                // other intentional-close messages) arrive in the same rAF frame as
-                // the WebSocket close event, so we must inspect the queue first or
-                // the disconnect check fires and obscures the real reason.
-                for msg in transport.drain_incoming() {
-                    match msg {
-                        GameMessage::Welcome { assigned_name } => {
-                            session.player_name = Some(assigned_name);
-                        }
-                        GameMessage::NameTaken => {
-                            sub = InGameSub::NameTaken;
-                        }
-                        GameMessage::GameStart { .. } => {
-                            session.peer_disconnected = false;
-                            session.state.tick(Some(PlayerInput::StartGame), 0);
-                        }
-                        GameMessage::PlayerQuit => {
-                            let name = session.player_name.clone().unwrap_or_default();
-                            return Phase::Lobby {
-                                name_buf: name,
-                                error: Some("OPPONENT QUIT".into()),
-                            };
-                        }
-                        GameMessage::PeerDisconnected => {
-                            let name = session.player_name.clone().unwrap_or_default();
-                            return Phase::Lobby { name_buf: name, error: None };
-                        }
-                        GameMessage::GameVoid => {
-                            session.state.phase = GamePhase::Title;
-                        }
-                        other => {
-                            let replies = session.process_message(other);
-                            for r in replies {
-                                transport.send(&r);
+            Phase::InGame { mut session, mut peer, mut sub } => {
+                // Network: drain transport and classify messages.
+                let mut game_msgs: Vec<GameMessage> = Vec::new();
+                if let Peer::Network(transport) = &mut peer {
+                    // Drain before checking disconnect — PlayerQuit and other
+                    // intentional-close signals arrive in the same frame as the
+                    // WebSocket close event.
+                    for msg in transport.drain_incoming() {
+                        match msg {
+                            GameMessage::Welcome { assigned_name } => {
+                                session.player_name = Some(assigned_name);
                             }
-                        }
-                    }
-                }
-
-                if transport.is_disconnected() {
-                    let name = session.player_name.clone().unwrap_or_default();
-                    return Phase::Lobby {
-                        name_buf: name,
-                        error: Some("CONNECTION LOST".into()),
-                    };
-                }
-
-                // NameTaken: no key processing or ticking.
-                if sub == InGameSub::NameTaken {
-                    return Phase::InGame { session, transport, sub };
-                }
-
-                // sub is Copy — match copies the discriminant so we can freely
-                // reassign `sub` inside arms without borrow-checker conflicts.
-                let mut input: Option<PlayerInput> = None;
-                for key in code_keys {
-                    match sub {
-                        InGameSub::QuitConfirm => match key.as_str() {
-                            "KeyY" => {
-                                transport.send(&GameMessage::PlayerQuit);
-                                // Explicit close flushes the send buffer before
-                                // the closing handshake, ensuring PlayerQuit
-                                // reaches the server before the socket drops.
-                                transport.close();
+                            GameMessage::NameTaken => { sub = InGameSub::NameTaken; }
+                            GameMessage::GameStart { .. } => {
+                                session.peer_disconnected = false;
+                                session.state.tick(Some(PlayerInput::StartGame), 0);
+                            }
+                            GameMessage::PlayerQuit => {
+                                return Phase::Lobby {
+                                    name_buf: session.player_name.clone().unwrap_or_default(),
+                                    error: Some("OPPONENT QUIT".into()),
+                                };
+                            }
+                            GameMessage::PeerDisconnected => {
                                 return Phase::Lobby {
                                     name_buf: session.player_name.clone().unwrap_or_default(),
                                     error: None,
                                 };
+                            }
+                            other => game_msgs.push(other),
+                        }
+                    }
+                    if transport.is_disconnected() {
+                        return Phase::Lobby {
+                            name_buf: session.player_name.clone().unwrap_or_default(),
+                            error: Some("CONNECTION LOST".into()),
+                        };
+                    }
+                }
+
+                // NameTaken: no key processing or ticking.
+                if sub == InGameSub::NameTaken {
+                    return Phase::InGame { session, peer, sub };
+                }
+
+                let mut input: Option<PlayerInput> = None;
+                let mut rematch = false;
+                for key in code_keys {
+                    match sub {
+                        InGameSub::QuitConfirm => match key.as_str() {
+                            "KeyY" => {
+                                if let Peer::Network(transport) = &mut peer {
+                                    transport.send(&GameMessage::PlayerQuit);
+                                    transport.close();
+                                }
+                                return Phase::Title;
                             }
                             "KeyN" | "Escape" => { sub = InGameSub::Active; }
                             _ => {}
                         },
                         InGameSub::Active => match (&session.state.phase, key.as_str()) {
                             (GamePhase::GameOver { .. }, "Enter" | "NumpadEnter" | "Space") => {
-                                let _ = web_sys::window().unwrap().location().reload();
+                                rematch = true;
+                                break;
                             }
                             (GamePhase::GameOver { .. }, _) => {}
                             (GamePhase::Playing, "Escape") => { sub = InGameSub::QuitConfirm; }
@@ -286,21 +319,46 @@ impl WasmApp {
                     }
                 }
 
-                let (_, outgoing) = session.tick(input, elapsed_ms);
-                let mut rng = rand::rngs::StdRng::seed_from_u64(0);
-                for msg in outgoing {
-                    // Spy weapons reveal the opponent's board to the firer — they must
-                    // be applied locally and must NOT be forwarded to the opponent.
-                    if let GameMessage::WeaponLaunched { kind } = msg {
-                        if matches!(kind, WeaponKind::Ace | WeaponKind::Ames | WeaponKind::Condor) {
-                            session.state.apply_incoming_weapon(kind, &mut rng);
-                            continue;
+                if rematch {
+                    match &mut peer {
+                        Peer::Network(_) => return Phase::Title,
+                        Peer::Computer { to_ernie, .. } => {
+                            to_ernie.push(GameMessage::NewGame);
+                            session.reset_peer_state();
+                            session.state.tick(Some(PlayerInput::StartGame), 0);
+                        }
+                        Peer::Solo => {
+                            session.state.tick(Some(PlayerInput::StartGame), 0);
                         }
                     }
-                    transport.send(&msg);
                 }
 
-                Phase::InGame { session, transport, sub }
+                // Advance by peer type.
+                match &mut peer {
+                    Peer::Network(transport) => {
+                        let (to_send, _) = session.advance_frame(game_msgs.drain(..), input, elapsed_ms);
+                        for msg in to_send { transport.send(&msg); }
+                    }
+                    Peer::Computer { ernie, to_ernie } => {
+                        // Ernie processes last frame's player outgoing, then the player
+                        // processes this frame's Ernie responses. One-frame lag (≈16ms).
+                        let from_ernie = ernie.step(to_ernie, elapsed_ms);
+                        to_ernie.clear();
+                        let (new_to_ernie, _) = session.advance_frame(from_ernie, input, elapsed_ms);
+                        *to_ernie = new_to_ernie;
+                    }
+                    Peer::Solo => {
+                        let (to_self, _) = session.advance_frame(std::iter::empty(), input, elapsed_ms);
+                        let mut rng = StdRng::from_entropy();
+                        for msg in to_self {
+                            if let GameMessage::WeaponLaunched { kind } = msg {
+                                session.state.apply_incoming_weapon(kind, &mut rng);
+                            }
+                        }
+                    }
+                }
+
+                Phase::InGame { session, peer, sub }
             }
         }
     }
@@ -310,10 +368,19 @@ impl WasmApp {
     fn render(&mut self, ts: f64) {
         self.renderer.clear();
 
-        // Cursor blinks every 500 ms using the rAF timestamp.
         let cursor_visible = (ts as u64 / 500) % 2 == 0;
 
         match self.phase.as_ref().unwrap() {
+            Phase::Title => {
+                let mut ctx = self.renderer.backend();
+                draw_title(&mut ctx);
+            }
+
+            Phase::DifficultySelect { selected } => {
+                let mut ctx = self.renderer.backend();
+                draw_difficulty_select(&mut ctx, *selected);
+            }
+
             Phase::Lobby { name_buf, error } => {
                 let mut ctx = self.renderer.backend();
                 draw_connection_screen(&mut ctx, name_buf, cursor_visible, error.as_deref());
@@ -336,14 +403,7 @@ impl WasmApp {
                         draw_name_taken(&mut ctx);
                     }
                     InGameSub::QuitConfirm => {
-                        let mut view = session.state.to_playing_view();
-                        view.opponent_board = apply_board_visibility(
-                            &session.peer_board,
-                            view.opponent_board_accuracy,
-                        );
-                        view.peer_disconnected = session.peer_disconnected;
-                        view.opponent_name = session.opponent_name.clone();
-                        view.player_name = session.player_name.clone();
+                        let view = session.playing_view();
                         let mut ctx = self.renderer.backend();
                         draw_playing(&mut ctx, &view);
                         draw_quit_confirm(&mut ctx);
@@ -354,14 +414,7 @@ impl WasmApp {
 
                         match game_phase {
                             GamePhase::Playing | GamePhase::InBazaar => {
-                                let mut view = session.state.to_playing_view();
-                                view.opponent_board = apply_board_visibility(
-                                    &session.peer_board,
-                                    view.opponent_board_accuracy,
-                                );
-                                view.peer_disconnected = session.peer_disconnected;
-                                view.opponent_name = session.opponent_name.clone();
-                                view.player_name = session.player_name.clone();
+                                let view = session.playing_view();
                                 let mut ctx = self.renderer.backend();
                                 if in_baz {
                                     if let Some(ref bv) = view.bazaar_view {
@@ -376,8 +429,9 @@ impl WasmApp {
                                     Some((_, name, delta)) => (Some(name.as_str()), Some(*delta)),
                                     None => (None, None),
                                 };
+                                let mut ctx = self.renderer.backend();
                                 draw_game_over(
-                                    &mut self.renderer.backend(),
+                                    &mut ctx,
                                     won,
                                     session.state.score.score,
                                     session.state.score.lines,
@@ -397,15 +451,40 @@ impl WasmApp {
     }
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Game starters ────────────────────────────────────────────────────────────
 
-fn start_game(transport: WsTransport, player_name: String, opponent_name: String) -> Phase {
+fn start_network_game(transport: WsTransport, player_name: String, opponent_name: String) -> Phase {
     let seed = (js_sys::Math::random() * u64::MAX as f64) as u64;
     let mut session = NetworkSession::new(seed, Some(player_name));
     session.opponent_name = Some(opponent_name);
     session.state.mode = GameMode::VsNetwork;
     session.state.tick(Some(PlayerInput::StartGame), 0);
-    Phase::InGame { session, transport, sub: InGameSub::Active }
+    Phase::InGame { session, peer: Peer::Network(transport), sub: InGameSub::Active }
+}
+
+fn start_ernie_game(difficulty: u8) -> Phase {
+    let seed = (js_sys::Math::random() * u64::MAX as f64) as u64;
+    let ernie_seed = (js_sys::Math::random() * u64::MAX as f64) as u64;
+    let level_name = LEVELS[difficulty as usize].0;
+
+    let mut session = NetworkSession::new(seed, None);
+    session.state.mode = GameMode::VsComputer;
+    session.state.tick(Some(PlayerInput::StartGame), 0);
+    session.opponent_name = Some(format!("Ernie ({level_name})"));
+
+    let ernie = ErnieSession::new(ernie_seed, difficulty);
+    Phase::InGame {
+        session,
+        peer: Peer::Computer { ernie, to_ernie: Vec::new() },
+        sub: InGameSub::Active,
+    }
+}
+
+fn start_solo_game() -> Phase {
+    let seed = (js_sys::Math::random() * u64::MAX as f64) as u64;
+    let mut session = NetworkSession::new(seed, None);
+    session.state.tick(Some(PlayerInput::StartGame), 0);
+    Phase::InGame { session, peer: Peer::Solo, sub: InGameSub::Active }
 }
 
 // ─── Input mapping ────────────────────────────────────────────────────────────

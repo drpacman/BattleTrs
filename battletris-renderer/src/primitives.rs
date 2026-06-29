@@ -1,9 +1,9 @@
-use battletris_engine::engine::board::{BoardSnapshot, Cell, BOARD_COLS, BOARD_ROWS};
+use battletris_engine::engine::board::{Cell, BOARD_COLS, BOARD_ROWS};
 use battletris_engine::engine::piece::PieceKind;
 
 use crate::color::Color;
 use crate::context::DrawContext;
-use crate::layout::{BOARD_PX_H, BOARD_PX_W, CELL_PX};
+use crate::layout::CELL_PX;
 
 pub fn bt_color(index: u8) -> Color {
     match index {
@@ -16,6 +16,27 @@ pub fn bt_color(index: u8) -> Color {
         7 => Color::rgb(  0, 200, 220), // BT_CYAN
         8 => Color::rgb(160,  50, 200), // BT_PURPLE
         _ => Color::rgb(128, 128, 128),
+    }
+}
+
+pub(crate) fn piece_color(kind: PieceKind) -> Color {
+    match kind {
+        PieceKind::Die { .. } | PieceKind::Happy => Color::WHITE,
+        _ => bt_color(kind.color()),
+    }
+}
+
+pub(crate) fn cell_pos(col: i32, row: i32, origin_x: f64, origin_y: f64, flip: bool) -> (f64, f64) {
+    if flip {
+        (
+            origin_x + (BOARD_COLS as i32 - 1 - col) as f64 * CELL_PX,
+            origin_y + (BOARD_ROWS as i32 - 1 - row) as f64 * CELL_PX,
+        )
+    } else {
+        (
+            origin_x + col as f64 * CELL_PX,
+            origin_y + row as f64 * CELL_PX,
+        )
     }
 }
 
@@ -79,23 +100,10 @@ pub fn draw_active_piece<D: DrawContext>(
     origin_y: f64,
     flip: bool,
 ) {
-    let color = match kind {
-        PieceKind::Die { .. } | PieceKind::Happy => Color::WHITE,
-        _ => bt_color(kind.color()),
-    };
+    let color = piece_color(kind);
     for &(col, row) in cells {
         if row < 0 || row >= BOARD_ROWS as i32 { continue; }
-        let (px, py) = if flip {
-            (
-                origin_x + (BOARD_COLS as i32 - 1 - col) as f64 * CELL_PX,
-                origin_y + (BOARD_ROWS as i32 - 1 - row) as f64 * CELL_PX,
-            )
-        } else {
-            (
-                origin_x + col as f64 * CELL_PX,
-                origin_y + row as f64 * CELL_PX,
-            )
-        };
+        let (px, py) = cell_pos(col, row, origin_x, origin_y, flip);
         draw_cell(ctx, px, py, color);
         match kind {
             PieceKind::Die { pips } => draw_die_pips(ctx, px, py, pips),
@@ -113,34 +121,17 @@ pub fn draw_ghost_piece<D: DrawContext>(
     origin_y: f64,
     flip: bool,
 ) {
-    let base = match kind {
-        PieceKind::Die { .. } | PieceKind::Happy => Color::WHITE,
-        _ => bt_color(kind.color()),
-    };
-    let ghost_color = base.quarter();
+    let ghost_color = piece_color(kind).quarter();
     for &(col, row) in cells {
         if row < 0 || row >= BOARD_ROWS as i32 { continue; }
-        let (px, py) = if flip {
-            (
-                origin_x + (BOARD_COLS as i32 - 1 - col) as f64 * CELL_PX,
-                origin_y + (BOARD_ROWS as i32 - 1 - row) as f64 * CELL_PX,
-            )
-        } else {
-            (
-                origin_x + col as f64 * CELL_PX,
-                origin_y + row as f64 * CELL_PX,
-            )
-        };
+        let (px, py) = cell_pos(col, row, origin_x, origin_y, flip);
         ctx.stroke_rect(px + 1.0, py + 1.0, CELL_PX - 2.0, CELL_PX - 2.0, ghost_color);
     }
 }
 
 pub fn draw_next_piece<D: DrawContext>(ctx: &mut D, kind: PieceKind, origin_x: f64, origin_y: f64) {
     const PREVIEW_CELL: f64 = 14.0;
-    let color = match kind {
-        PieceKind::Die { .. } | PieceKind::Happy => Color::WHITE,
-        _ => bt_color(kind.color()),
-    };
+    let color = piece_color(kind);
     let cells = kind.cells(0);
     for &(col, row) in cells {
         let px = origin_x + col as f64 * PREVIEW_CELL;

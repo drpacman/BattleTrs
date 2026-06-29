@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use sdl2::event::Event;
 use sdl2::keyboard::{Mod, Scancode};
 
+use battletris_engine::ai::{DEFAULT_DIFFICULTY, LEVELS};
 use battletris_engine::engine::game_state::PlayerInput;
 use battletris_engine::protocol::GameMessage;
 
@@ -19,7 +20,7 @@ use net::{ConnectError, NetChannels};
 use battletris_renderer::bazaar::draw_bazaar;
 use battletris_renderer::game_over::draw_game_over;
 use battletris_renderer::playing::{draw_playing, draw_quit_confirm};
-use battletris_engine::ai::LEVELS;
+use battletris_renderer::screens::validate_player_name;
 use renderer::{
     lobby::{draw_connection_screen, draw_connecting_screen, draw_waiting_screen},
     title::{draw_difficulty_select, draw_title},
@@ -28,12 +29,18 @@ use renderer::{
 
 // ─── App state machine ────────────────────────────────────────────────────────
 
+#[derive(PartialEq, Clone, Copy)]
+enum InGameSub {
+    Active,
+    QuitConfirm,
+}
+
 enum AppState {
-    TitleMenu,
+    Title,
     DifficultySelect {
         selected: usize,
     },
-    ConnectionScreen {
+    Lobby {
         addr_buf: String,
         name_buf: String,
         active_field: usize, // 0=addr, 1=name
@@ -41,7 +48,6 @@ enum AppState {
         cursor_blink: bool,
         blink_timer: Instant,
     },
-    /// Background thread doing TcpConnect + handshake.
     Connecting {
         addr_display: String,
         result_rx: mpsc::Receiver<Result<(NetChannels, String), ConnectError>>,
@@ -53,6 +59,7 @@ enum AppState {
     InGame {
         input_tx: mpsc::Sender<PlayerInput>,
         render_rx: mpsc::Receiver<RenderEvent>,
+        sub: InGameSub,
     },
 }
 
@@ -62,12 +69,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut event_pump = sdl.event_pump()?;
 
     let mut renderer = Renderer::new(video)?;
-    let mut app = AppState::TitleMenu;
-
-    // Quit-confirm overlay state (only active while InGame).
-    let mut quit_confirming = false;
+    let mut app = AppState::Title;
     let mut last_playing: Option<RenderEvent> = None;
-    let mut in_game = false;
 
     'main: loop {
         for event in event_pump.poll_iter() {
@@ -75,9 +78,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Event::Quit { .. } => break 'main,
 
                 Event::KeyDown { scancode: Some(sc), keymod, repeat: false, .. } => {
-                    // Type printable characters into connection screen fields.
-                    // Evaluate the character before taking a mutable borrow of app.
-                    let text_ch = if matches!(app, AppState::ConnectionScreen { .. }) {
+                    // Type printable characters into lobby fields.
+                    let text_ch = if matches!(app, AppState::Lobby { .. }) {
                         scancode_to_char(sc, keymod)
                     } else {
                         None
@@ -86,38 +88,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         handle_text_input(&mut app, ch);
                     }
 
-                    if quit_confirming {
-                        match sc {
-                            Scancode::Y => {
-                                quit_confirming = false;
-                                in_game = false;
-                                last_playing = None;
-                                if let AppState::InGame { ref input_tx, .. } = app {
-                                    let _ = input_tx.send(PlayerInput::QuitToTitle);
-                                }
-                            }
-                            Scancode::N | Scancode::Escape => {
-                                quit_confirming = false;
-                            }
-                            _ => {}
-                        }
-                        continue;
-                    }
-
                     match &mut app {
-                        AppState::TitleMenu => {
+                        AppState::Title => {
                             match sc {
                                 Scancode::Return | Scancode::KpEnter => {
-                                    // Default to "Focused" (index 6 = 750ms)
-                                    app = AppState::DifficultySelect { selected: 6 };
+                                    app = AppState::DifficultySelect { selected: DEFAULT_DIFFICULTY };
                                 }
                                 Scancode::S => {
                                     app = start_single_player_game();
-                                    in_game = false;
                                     last_playing = None;
                                 }
                                 Scancode::N => {
-                                    app = AppState::ConnectionScreen {
+                                    app = AppState::Lobby {
                                         addr_buf: "127.0.0.1:7001".to_string(),
                                         name_buf: String::new(),
                                         active_field: 0,
@@ -141,20 +123,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 Scancode::Return | Scancode::KpEnter => {
                                     let difficulty = *selected as u8;
                                     app = start_ernie_game(difficulty);
-                                    in_game = false;
                                     last_playing = None;
                                 }
                                 Scancode::Escape => {
-                                    app = AppState::TitleMenu;
+                                    app = AppState::Title;
                                 }
                                 _ => {}
                             }
                         }
 
-                        AppState::ConnectionScreen { addr_buf, name_buf, active_field, error, .. } => {
+                        AppState::Lobby { addr_buf, name_buf, active_field, error, .. } => {
                             match sc {
                                 Scancode::Escape => {
-                                    app = AppState::TitleMenu;
+                                    app = AppState::Title;
                                 }
                                 Scancode::Tab => {
                                     *active_field = 1 - *active_field;
@@ -180,38 +161,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                         AppState::Connecting { .. } => {
                             if sc == Scancode::Escape {
-                                app = AppState::TitleMenu;
+                                app = AppState::Title;
                             }
                         }
 
                         AppState::WaitingForOpponent { .. } => {
                             if sc == Scancode::Escape {
-                                app = AppState::TitleMenu;
+                                app = AppState::Title;
                             }
                         }
 
-                        AppState::InGame { ref input_tx, .. } => {
-                            let in_bazaar = matches!(
-                                &last_playing,
-                                Some(RenderEvent::Playing(v)) if v.bazaar_view.is_some()
-                            );
-                            if sc == Scancode::Escape && in_bazaar {
-                                let _ = input_tx.send(PlayerInput::BazaarExit);
-                            } else if sc == Scancode::Escape && in_game {
-                                quit_confirming = true;
-                            } else if let Some(input) = scancode_to_input(sc) {
-                                let _ = input_tx.send(input);
+                        AppState::InGame { sub, input_tx, .. } => {
+                            match sub {
+                                InGameSub::QuitConfirm => match sc {
+                                    Scancode::Y => {
+                                        *sub = InGameSub::Active;
+                                        last_playing = None;
+                                        let _ = input_tx.send(PlayerInput::QuitToTitle);
+                                    }
+                                    Scancode::N | Scancode::Escape => {
+                                        *sub = InGameSub::Active;
+                                    }
+                                    _ => {}
+                                },
+                                InGameSub::Active => {
+                                    let in_bazaar = matches!(
+                                        &last_playing,
+                                        Some(RenderEvent::Playing(v)) if v.bazaar_view.is_some()
+                                    );
+                                    let in_game_active = matches!(
+                                        &last_playing,
+                                        Some(RenderEvent::Playing(_))
+                                    );
+                                    if sc == Scancode::Escape && in_bazaar {
+                                        let _ = input_tx.send(PlayerInput::BazaarExit);
+                                    } else if sc == Scancode::Escape && in_game_active {
+                                        *sub = InGameSub::QuitConfirm;
+                                    } else if let Some(input) = scancode_to_input(sc) {
+                                        let _ = input_tx.send(input);
+                                    }
+                                }
                             }
                         }
                     }
                 }
 
                 Event::KeyUp { scancode: Some(sc), .. } => {
-                    if !quit_confirming {
-                        if let AppState::InGame { ref input_tx, .. } = app {
-                            if sc == Scancode::Down {
-                                let _ = input_tx.send(PlayerInput::SoftDropRelease);
-                            }
+                    if let AppState::InGame { ref input_tx, ref sub, .. } = app {
+                        if *sub != InGameSub::QuitConfirm && sc == Scancode::Down {
+                            let _ = input_tx.send(PlayerInput::SoftDropRelease);
                         }
                     }
                 }
@@ -221,10 +219,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // ── Per-frame state transitions ────────────────────────────────────
-        app = transition(app, &mut in_game, &mut last_playing, &mut quit_confirming);
+        app = transition(app, &mut last_playing);
 
         // ── Cursor blink ───────────────────────────────────────────────────
-        if let AppState::ConnectionScreen { cursor_blink, blink_timer, .. } = &mut app {
+        if let AppState::Lobby { cursor_blink, blink_timer, .. } = &mut app {
             if blink_timer.elapsed() >= Duration::from_millis(500) {
                 *cursor_blink = !*cursor_blink;
                 *blink_timer = Instant::now();
@@ -233,7 +231,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // ── Render ─────────────────────────────────────────────────────────
         renderer.clear();
-        render_frame(&mut renderer, &app, &last_playing, quit_confirming);
+        render_frame(&mut renderer, &app, &last_playing);
         renderer.present();
 
         thread::sleep(Duration::from_millis(16));
@@ -248,7 +246,7 @@ fn start_single_player_game() -> AppState {
     let (input_tx, input_rx) = mpsc::channel::<PlayerInput>();
     let (render_tx, render_rx) = mpsc::sync_channel::<RenderEvent>(2);
     thread::spawn(move || run_game_loop(input_rx, render_tx, None, None, None));
-    AppState::InGame { input_tx, render_rx }
+    AppState::InGame { input_tx, render_rx, sub: InGameSub::Active }
 }
 
 fn start_ernie_game(difficulty: u8) -> AppState {
@@ -268,7 +266,7 @@ fn start_ernie_game(difficulty: u8) -> AppState {
     });
     thread::spawn(move || run_game_loop(input_rx, render_tx, peer, None, Some(opponent_name)));
 
-    AppState::InGame { input_tx, render_rx }
+    AppState::InGame { input_tx, render_rx, sub: InGameSub::Active }
 }
 
 fn begin_connect(addr: SocketAddr, addr_display: String, name: String) -> AppState {
@@ -281,19 +279,16 @@ fn begin_connect(addr: SocketAddr, addr_display: String, name: String) -> AppSta
 }
 
 fn validate_connection_input(addr: &str, name: &str) -> Result<SocketAddr, String> {
-    if name.is_empty() {
-        return Err("Player name cannot be empty".into());
-    }
-    if name.len() > 16 {
-        return Err("Name must be 16 chars or less".into());
+    if let Some(e) = validate_player_name(name) {
+        return Err(e.to_string());
     }
     addr.parse::<SocketAddr>()
         .map_err(|_| "Invalid server address (use host:port)".into())
 }
 
-/// Push a printable character into the active connection screen field.
+/// Push a printable character into the active lobby field.
 fn handle_text_input(app: &mut AppState, ch: char) {
-    let AppState::ConnectionScreen { addr_buf, name_buf, active_field, error, .. } = app else { return };
+    let AppState::Lobby { addr_buf, name_buf, active_field, error, .. } = app else { return };
     let target = if *active_field == 0 { addr_buf } else { name_buf };
     let max_len = if *active_field == 0 { 64 } else { 16 };
     if target.len() < max_len {
@@ -303,12 +298,7 @@ fn handle_text_input(app: &mut AppState, ch: char) {
 }
 
 /// Per-frame transitions that don't require user input.
-fn transition(
-    app: AppState,
-    in_game: &mut bool,
-    last_playing: &mut Option<RenderEvent>,
-    quit_confirming: &mut bool,
-) -> AppState {
+fn transition(mut app: AppState, last_playing: &mut Option<RenderEvent>) -> AppState {
     match app {
         AppState::Connecting { addr_display, result_rx } => {
             match result_rx.try_recv() {
@@ -316,7 +306,7 @@ fn transition(
                     AppState::WaitingForOpponent { net, player_name }
                 }
                 Ok(Err(ConnectError::NameTaken)) => {
-                    AppState::ConnectionScreen {
+                    AppState::Lobby {
                         addr_buf: addr_display,
                         name_buf: String::new(),
                         active_field: 1,
@@ -326,7 +316,7 @@ fn transition(
                     }
                 }
                 Ok(Err(e)) => {
-                    AppState::ConnectionScreen {
+                    AppState::Lobby {
                         addr_buf: addr_display,
                         name_buf: String::new(),
                         active_field: 0,
@@ -339,7 +329,7 @@ fn transition(
                     AppState::Connecting { addr_display, result_rx }
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    AppState::ConnectionScreen {
+                    AppState::Lobby {
                         addr_buf: addr_display,
                         name_buf: String::new(),
                         active_field: 0,
@@ -352,10 +342,8 @@ fn transition(
         }
 
         AppState::WaitingForOpponent { net, player_name } => {
-            // Poll for GameStart from server
             match net.from_server.try_recv() {
                 Ok(GameMessage::GameStart { opponent_name }) => {
-                    // Spawn the game loop with network channels
                     let (input_tx, input_rx) = mpsc::channel::<PlayerInput>();
                     let (render_tx, render_rx) = mpsc::sync_channel::<RenderEvent>(2);
 
@@ -368,46 +356,39 @@ fn transition(
                         run_game_loop(input_rx, render_tx, peer, Some(name_clone), Some(opponent_name))
                     });
 
-                    *in_game = false;
                     *last_playing = None;
-                    AppState::InGame { input_tx, render_rx }
+                    AppState::InGame { input_tx, render_rx, sub: InGameSub::Active }
                 }
                 Ok(_) => AppState::WaitingForOpponent { net, player_name },
                 Err(_) => AppState::WaitingForOpponent { net, player_name },
             }
         }
 
-        AppState::InGame { input_tx: _, ref render_rx } => {
-            // Drain render channel
+        AppState::InGame { input_tx: _, ref render_rx, ref mut sub } => {
             let mut latest: Option<RenderEvent> = None;
             while let Ok(ev) = render_rx.try_recv() {
                 latest = Some(ev);
             }
 
-            let back_to_title = matches!(latest, Some(RenderEvent::Title));
+            let back_to_title = matches!(&latest, Some(RenderEvent::Title));
 
             match &latest {
                 Some(RenderEvent::Playing(_)) => {
-                    *in_game = true;
                     *last_playing = latest;
                 }
                 Some(RenderEvent::Title) => {
-                    *in_game = false;
-                    *quit_confirming = false;
+                    *sub = InGameSub::Active;
                     *last_playing = None;
                 }
                 Some(RenderEvent::GameOver { .. }) => {
-                    *in_game = false;
-                    *quit_confirming = false;
+                    *sub = InGameSub::Active;
                     *last_playing = latest;
                 }
                 None => {}
             }
 
-            // When the game loop returns to its own title phase, go back to the
-            // real title menu so all key bindings (S, Enter, N) work again.
             if back_to_title {
-                AppState::TitleMenu
+                AppState::Title
             } else {
                 app
             }
@@ -419,31 +400,13 @@ fn transition(
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
 
-fn render_frame(
-    renderer: &mut Renderer,
-    app: &AppState,
-    last_playing: &Option<RenderEvent>,
-    quit_confirming: bool,
-) {
-    if quit_confirming {
-        if let Some(RenderEvent::Playing(ref view)) = last_playing {
-            let baz = view.bazaar_view.clone();
-            let mut ctx = renderer.backend();
-            draw_playing(&mut ctx, view);
-            if let Some(ref b) = baz { draw_bazaar(&mut ctx, b); }
-            draw_quit_confirm(&mut ctx);
-        } else {
-            draw_quit_confirm(&mut renderer.backend());
-        }
-        return;
-    }
-
+fn render_frame(renderer: &mut Renderer, app: &AppState, last_playing: &Option<RenderEvent>) {
     match app {
-        AppState::TitleMenu => draw_title(renderer),
+        AppState::Title => draw_title(renderer),
 
         AppState::DifficultySelect { selected } => draw_difficulty_select(renderer, *selected),
 
-        AppState::ConnectionScreen { addr_buf, name_buf, active_field, error, cursor_blink, .. } => {
+        AppState::Lobby { addr_buf, name_buf, active_field, error, cursor_blink, .. } => {
             draw_connection_screen(renderer, addr_buf, name_buf, *active_field, *cursor_blink, error.as_deref());
         }
 
@@ -455,25 +418,38 @@ fn render_frame(
             draw_waiting_screen(renderer, player_name);
         }
 
-        AppState::InGame { .. } => {
-            match last_playing {
-                Some(RenderEvent::Playing(ref view)) => {
+        AppState::InGame { sub, .. } => match sub {
+            InGameSub::QuitConfirm => {
+                if let Some(RenderEvent::Playing(ref view)) = last_playing {
                     let baz = view.bazaar_view.clone();
                     let mut ctx = renderer.backend();
                     draw_playing(&mut ctx, view);
                     if let Some(ref b) = baz { draw_bazaar(&mut ctx, b); }
+                    draw_quit_confirm(&mut ctx);
+                } else {
+                    draw_quit_confirm(&mut renderer.backend());
                 }
-                Some(RenderEvent::GameOver { won, score, lines, winner_name, elo_delta }) => {
-                    draw_game_over(
-                        &mut renderer.backend(),
-                        *won, *score, *lines,
-                        winner_name.as_deref(),
-                        *elo_delta,
-                    );
-                }
-                _ => draw_title(renderer),
             }
-        }
+            InGameSub::Active => {
+                match last_playing {
+                    Some(RenderEvent::Playing(ref view)) => {
+                        let baz = view.bazaar_view.clone();
+                        let mut ctx = renderer.backend();
+                        draw_playing(&mut ctx, view);
+                        if let Some(ref b) = baz { draw_bazaar(&mut ctx, b); }
+                    }
+                    Some(RenderEvent::GameOver { won, score, lines, winner_name, elo_delta }) => {
+                        draw_game_over(
+                            &mut renderer.backend(),
+                            *won, *score, *lines,
+                            winner_name.as_deref(),
+                            *elo_delta,
+                        );
+                    }
+                    _ => draw_title(renderer),
+                }
+            }
+        },
     }
 }
 

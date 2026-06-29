@@ -6,11 +6,11 @@ use crate::color::Color;
 use crate::context::DrawContext;
 use crate::font::{draw_text, text_w};
 use crate::layout::{
-    BOARD_PX_H, BOARD_PX_W, CELL_PX, OPP_BOARD_X, OPP_BOARD_Y,
+    BOARD_PX_H, BOARD_PX_W, OPP_BOARD_X, OPP_BOARD_Y,
     PLAYER_BOARD_X, PLAYER_BOARD_Y, STATS_X, STATS_Y, WINDOW_H, WINDOW_W,
 };
 use crate::primitives::{
-    cell_color, draw_active_piece, draw_cell, draw_die_pips, draw_face,
+    cell_color, cell_pos, draw_active_piece, draw_cell, draw_die_pips, draw_face,
     draw_ghost_piece, draw_next_piece,
 };
 
@@ -47,6 +47,10 @@ pub fn draw_playing<D: DrawContext>(ctx: &mut D, view: &PlayingView) {
     draw_stats(ctx, view);
 }
 
+fn draw_grid_dot<D: DrawContext>(ctx: &mut D, px: f64, py: f64) {
+    ctx.fill_rect(px + 13.0, py + 13.0, 2.0, 2.0, Color::GRID);
+}
+
 fn draw_board_with_effects<D: DrawContext>(ctx: &mut D, view: &PlayingView, is_player: bool) {
     let origin_x = if is_player { PLAYER_BOARD_X } else { OPP_BOARD_X };
     let origin_y = if is_player { PLAYER_BOARD_Y } else { OPP_BOARD_Y };
@@ -61,45 +65,35 @@ fn draw_board_with_effects<D: DrawContext>(ctx: &mut D, view: &PlayingView, is_p
         ctx.fill_rect(origin_x, origin_y, BOARD_PX_W, BOARD_PX_H, Color::PANEL);
         for row in 0..BOARD_ROWS {
             for col in 0..BOARD_COLS {
-                let px = origin_x + col as f64 * CELL_PX;
-                let py = origin_y + row as f64 * CELL_PX;
-                ctx.fill_rect(px + 13.0, py + 13.0, 2.0, 2.0, Color::GRID);
+                let (px, py) = cell_pos(col as i32, row as i32, origin_x, origin_y, false);
+                draw_grid_dot(ctx, px, py);
             }
         }
         return;
     };
 
     ctx.fill_rect(origin_x, origin_y, BOARD_PX_W, BOARD_PX_H, Color::PANEL);
+    let flip = is_player && view.upbyside_active;
 
     for row in 0..BOARD_ROWS {
         for col in 0..BOARD_COLS {
             let cell = snapshot.cells[row][col];
-            let (px, py) = if is_player && view.upbyside_active {
-                (
-                    origin_x + (BOARD_COLS - 1 - col) as f64 * CELL_PX,
-                    origin_y + (BOARD_ROWS - 1 - row) as f64 * CELL_PX,
-                )
-            } else {
-                (
-                    origin_x + col as f64 * CELL_PX,
-                    origin_y + row as f64 * CELL_PX,
-                )
-            };
+            let (px, py) = cell_pos(col as i32, row as i32, origin_x, origin_y, flip);
 
             if is_player && view.blind_cells.contains(&(row, col)) {
-                ctx.fill_rect(px + 13.0, py + 13.0, 2.0, 2.0, Color::GRID);
+                draw_grid_dot(ctx, px, py);
                 continue;
             }
 
             if is_player && view.twilight_active && !cell.is_empty() {
                 // Original game: erase cells to board background (black_gc).
                 // Render a grid dot so hidden cells are indistinguishable from empty ones.
-                ctx.fill_rect(px + 13.0, py + 13.0, 2.0, 2.0, Color::GRID);
+                draw_grid_dot(ctx, px, py);
                 continue;
             }
 
             if cell == Cell::Bug {
-                ctx.fill_rect(px + 13.0, py + 13.0, 2.0, 2.0, Color::GRID);
+                draw_grid_dot(ctx, px, py);
                 continue;
             }
 
@@ -117,11 +111,10 @@ fn draw_board_with_effects<D: DrawContext>(ctx: &mut D, view: &PlayingView, is_p
                     _ => {}
                 }
             } else {
-                ctx.fill_rect(px + 13.0, py + 13.0, 2.0, 2.0, Color::GRID);
+                draw_grid_dot(ctx, px, py);
             }
         }
     }
-
 }
 
 fn draw_weapon_chips<D: DrawContext>(ctx: &mut D, weapons: &[ActiveWeaponView], board_x: f64) {
