@@ -1,5 +1,3 @@
-pub mod screens;
-
 use wasm_bindgen::{Clamped, JsCast};
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
 

@@ -10,14 +10,13 @@ use battletris_engine::session::NetworkSession;
 use battletris_renderer::bazaar::draw_bazaar;
 use battletris_renderer::game_over::draw_game_over;
 use battletris_renderer::playing::{draw_playing, draw_quit_confirm};
-use battletris_renderer::screens::validate_player_name;
+use battletris_renderer::screens::{
+    validate_player_name, draw_connecting, draw_connection_screen, draw_name_taken, draw_waiting
+};
 use battletris_renderer::title::{draw_difficulty_select, draw_title};
 
 use crate::input::InputHandler;
 use crate::renderer::CanvasRenderer;
-use crate::renderer::screens::{
-    draw_connecting, draw_connection_screen, draw_name_taken, draw_waiting,
-};
 use crate::transport::WsTransport;
 
 // ─── Peer ─────────────────────────────────────────────────────────────────────
@@ -369,42 +368,36 @@ impl WasmApp {
         self.renderer.clear();
 
         let cursor_visible = (ts as u64 / 500) % 2 == 0;
-
+        let mut ctx = self.renderer.backend();
+                
         match self.phase.as_ref().unwrap() {
             Phase::Title => {
-                let mut ctx = self.renderer.backend();
                 draw_title(&mut ctx);
             }
 
             Phase::DifficultySelect { selected } => {
-                let mut ctx = self.renderer.backend();
                 draw_difficulty_select(&mut ctx, *selected);
             }
 
             Phase::Lobby { name_buf, error } => {
-                let mut ctx = self.renderer.backend();
-                draw_connection_screen(&mut ctx, name_buf, cursor_visible, error.as_deref());
+                draw_connection_screen(&mut ctx, None, name_buf, true, cursor_visible, error.as_deref());
             }
 
             Phase::Connecting { addr_display, .. } => {
-                let mut ctx = self.renderer.backend();
                 draw_connecting(&mut ctx, addr_display);
             }
 
             Phase::WaitingForOpponent { player_name, .. } => {
-                let mut ctx = self.renderer.backend();
                 draw_waiting(&mut ctx, player_name);
             }
 
             Phase::InGame { session, sub, .. } => {
                 match sub {
                     InGameSub::NameTaken => {
-                        let mut ctx = self.renderer.backend();
                         draw_name_taken(&mut ctx);
                     }
                     InGameSub::QuitConfirm => {
                         let view = session.playing_view();
-                        let mut ctx = self.renderer.backend();
                         draw_playing(&mut ctx, &view);
                         draw_quit_confirm(&mut ctx);
                     }
@@ -415,7 +408,6 @@ impl WasmApp {
                         match game_phase {
                             GamePhase::Playing | GamePhase::InBazaar => {
                                 let view = session.playing_view();
-                                let mut ctx = self.renderer.backend();
                                 if in_baz {
                                     if let Some(ref bv) = view.bazaar_view {
                                         draw_bazaar(&mut ctx, bv);
@@ -429,7 +421,6 @@ impl WasmApp {
                                     Some((_, name, delta)) => (Some(name.as_str()), Some(*delta)),
                                     None => (None, None),
                                 };
-                                let mut ctx = self.renderer.backend();
                                 draw_game_over(
                                     &mut ctx,
                                     won,
@@ -440,7 +431,6 @@ impl WasmApp {
                                 );
                             }
                             _ => {
-                                let mut ctx = self.renderer.backend();
                                 draw_waiting(&mut ctx, "");
                             }
                         }

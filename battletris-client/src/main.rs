@@ -21,6 +21,7 @@ use battletris_renderer::bazaar::draw_bazaar;
 use battletris_renderer::game_over::draw_game_over;
 use battletris_renderer::playing::{draw_playing, draw_quit_confirm};
 use battletris_renderer::screens::validate_player_name;
+
 use renderer::{
     lobby::{draw_connection_screen, draw_connecting_screen, draw_waiting_screen},
     title::{draw_difficulty_select, draw_title},
