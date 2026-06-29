@@ -17,17 +17,13 @@ use battletris_engine::protocol::GameMessage;
 
 use game_loop::{run_game_loop, PeerChannels, RenderEvent};
 use net::{ConnectError, NetChannels};
-use battletris_renderer::bazaar::draw_bazaar;
 use battletris_renderer::game_over::draw_game_over;
-use battletris_renderer::playing::{draw_playing, draw_quit_confirm};
-use battletris_renderer::screens::validate_player_name;
-
-use renderer::{
-    lobby::{draw_connection_screen, draw_connecting_screen, draw_waiting_screen},
-    title::{draw_difficulty_select, draw_title},
-    Renderer,
+use battletris_renderer::playing::render_game_view;
+use battletris_renderer::screens::{
+    validate_player_name, draw_connection_screen, draw_connecting, draw_waiting,
 };
-
+use battletris_renderer::title::{draw_difficulty_select, draw_title};
+use crate::renderer::Renderer;
 // ─── App state machine ────────────────────────────────────────────────────────
 
 #[derive(PartialEq, Clone, Copy)]
@@ -402,55 +398,36 @@ fn transition(mut app: AppState, last_playing: &mut Option<RenderEvent>) -> AppS
 // ─── Rendering ────────────────────────────────────────────────────────────────
 
 fn render_frame(renderer: &mut Renderer, app: &AppState, last_playing: &Option<RenderEvent>) {
+    let mut ctx = renderer.backend();
     match app {
-        AppState::Title => draw_title(renderer),
+        AppState::Title => draw_title(&mut ctx),
 
-        AppState::DifficultySelect { selected } => draw_difficulty_select(renderer, *selected),
+        AppState::DifficultySelect { selected } => draw_difficulty_select(&mut ctx, *selected),
 
         AppState::Lobby { addr_buf, name_buf, active_field, error, cursor_blink, .. } => {
-            draw_connection_screen(renderer, addr_buf, name_buf, *active_field, *cursor_blink, error.as_deref());
+            draw_connection_screen(
+                &mut ctx,
+                Some((addr_buf, *active_field == 0)),
+                name_buf, *active_field == 1,
+                *cursor_blink, error.as_deref(),
+            );
         }
 
-        AppState::Connecting { addr_display, .. } => {
-            draw_connecting_screen(renderer, addr_display);
-        }
+        AppState::Connecting { addr_display, .. } => draw_connecting(&mut ctx, addr_display),
 
-        AppState::WaitingForOpponent { player_name, .. } => {
-            draw_waiting_screen(renderer, player_name);
-        }
+        AppState::WaitingForOpponent { player_name, .. } => draw_waiting(&mut ctx, player_name),
 
-        AppState::InGame { sub, .. } => match sub {
-            InGameSub::QuitConfirm => {
-                if let Some(RenderEvent::Playing(ref view)) = last_playing {
-                    let baz = view.bazaar_view.clone();
-                    let mut ctx = renderer.backend();
-                    draw_playing(&mut ctx, view);
-                    if let Some(ref b) = baz { draw_bazaar(&mut ctx, b); }
-                    draw_quit_confirm(&mut ctx);
-                } else {
-                    draw_quit_confirm(&mut renderer.backend());
+        AppState::InGame { sub, .. } => {
+            match last_playing {
+                Some(RenderEvent::Playing(ref view)) => {
+                    render_game_view(&mut ctx, view, *sub == InGameSub::QuitConfirm);
                 }
-            }
-            InGameSub::Active => {
-                match last_playing {
-                    Some(RenderEvent::Playing(ref view)) => {
-                        let baz = view.bazaar_view.clone();
-                        let mut ctx = renderer.backend();
-                        draw_playing(&mut ctx, view);
-                        if let Some(ref b) = baz { draw_bazaar(&mut ctx, b); }
-                    }
-                    Some(RenderEvent::GameOver { won, score, lines, winner_name, elo_delta }) => {
-                        draw_game_over(
-                            &mut renderer.backend(),
-                            *won, *score, *lines,
-                            winner_name.as_deref(),
-                            *elo_delta,
-                        );
-                    }
-                    _ => draw_title(renderer),
+                Some(RenderEvent::GameOver { won, score, lines, winner_name, elo_delta }) => {
+                    draw_game_over(&mut ctx, *won, *score, *lines, winner_name.as_deref(), *elo_delta);
                 }
+                _ => draw_title(&mut ctx),
             }
-        },
+        }
     }
 }
 

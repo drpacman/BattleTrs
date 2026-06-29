@@ -7,11 +7,10 @@ use battletris_engine::engine::game_state::{GameMode, GamePhase, PlayerInput};
 use battletris_engine::protocol::GameMessage;
 use battletris_engine::session::NetworkSession;
 
-use battletris_renderer::bazaar::draw_bazaar;
 use battletris_renderer::game_over::draw_game_over;
-use battletris_renderer::playing::{draw_playing, draw_quit_confirm};
+use battletris_renderer::playing::render_game_view;
 use battletris_renderer::screens::{
-    validate_player_name, draw_connecting, draw_connection_screen, draw_name_taken, draw_waiting
+    validate_player_name, draw_connecting, draw_connection_screen, draw_name_taken, draw_waiting,
 };
 use battletris_renderer::title::{draw_difficulty_select, draw_title};
 
@@ -392,48 +391,27 @@ impl WasmApp {
             }
 
             Phase::InGame { session, sub, .. } => {
-                match sub {
-                    InGameSub::NameTaken => {
-                        draw_name_taken(&mut ctx);
-                    }
-                    InGameSub::QuitConfirm => {
-                        let view = session.playing_view();
-                        draw_playing(&mut ctx, &view);
-                        draw_quit_confirm(&mut ctx);
-                    }
-                    InGameSub::Active => {
-                        let in_baz = matches!(session.state.phase, GamePhase::InBazaar);
-                        let game_phase = session.state.phase.clone();
-
-                        match game_phase {
-                            GamePhase::Playing | GamePhase::InBazaar => {
-                                let view = session.playing_view();
-                                if in_baz {
-                                    if let Some(ref bv) = view.bazaar_view {
-                                        draw_bazaar(&mut ctx, bv);
-                                    }
-                                } else {
-                                    draw_playing(&mut ctx, &view);
-                                }
-                            }
-                            GamePhase::GameOver { won } => {
-                                let (winner_name, elo_delta) = match &session.network_result {
-                                    Some((_, name, delta)) => (Some(name.as_str()), Some(*delta)),
-                                    None => (None, None),
-                                };
-                                draw_game_over(
-                                    &mut ctx,
-                                    won,
-                                    session.state.score.score,
-                                    session.state.score.lines,
-                                    winner_name,
-                                    elo_delta,
-                                );
-                            }
-                            _ => {
-                                draw_waiting(&mut ctx, "");
-                            }
+                if *sub == InGameSub::NameTaken {
+                    draw_name_taken(&mut ctx);
+                } else {
+                    match session.state.phase.clone() {
+                        GamePhase::Playing | GamePhase::InBazaar => {
+                            let view = session.playing_view();
+                            render_game_view(&mut ctx, &view, *sub == InGameSub::QuitConfirm);
                         }
+                        GamePhase::GameOver { won } => {
+                            let (winner_name, elo_delta) = match &session.network_result {
+                                Some((_, name, delta)) => (Some(name.as_str()), Some(*delta)),
+                                None => (None, None),
+                            };
+                            draw_game_over(
+                                &mut ctx, won,
+                                session.state.score.score,
+                                session.state.score.lines,
+                                winner_name, elo_delta,
+                            );
+                        }
+                        _ => draw_waiting(&mut ctx, ""),
                     }
                 }
             }

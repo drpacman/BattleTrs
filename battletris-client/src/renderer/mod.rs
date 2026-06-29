@@ -5,9 +5,6 @@ use sdl2::video::{Window, WindowContext};
 
 use battletris_renderer::{Color, DrawContext, GIMP_PNG};
 
-pub mod lobby;
-pub mod title;
-
 pub use battletris_renderer::layout::{WINDOW_H, WINDOW_W};
 
 // ─── SDL2 DrawContext backend ─────────────────────────────────────────────────

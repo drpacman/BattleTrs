@@ -250,3 +250,15 @@ pub fn draw_quit_confirm<D: DrawContext>(ctx: &mut D) {
     let no = "N - CONTINUE";
     draw_text(ctx, no, cx - text_w(no, 2.0) / 2.0, by + 76.0, Color::rgb(80, 220, 80), 2.0);
 }
+
+/// Draw one game frame: playing view, bazaar overlay (if active), quit-confirm overlay (if active).
+/// Both native and web use this instead of calling the three functions separately.
+pub fn render_game_view<D: DrawContext>(ctx: &mut D, view: &PlayingView, quit_confirming: bool) {
+    draw_playing(ctx, view);
+    if let Some(ref bv) = view.bazaar_view {
+        crate::bazaar::draw_bazaar(ctx, bv);
+    }
+    if quit_confirming {
+        draw_quit_confirm(ctx);
+    }
+}
